@@ -1,6 +1,7 @@
 // Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.ui.branch.dashboard
 
+import com.intellij.dvcs.branch.GroupingKey
 import com.intellij.icons.AllIcons
 import com.intellij.ide.CommonActionsManager
 import com.intellij.ide.DataManager
@@ -49,9 +50,9 @@ import com.intellij.vcs.log.visible.filters.with
 import com.intellij.vcs.log.visible.filters.without
 import git4idea.i18n.GitBundle.message
 import git4idea.i18n.GitBundleExtensions.messagePointer
+import git4idea.repo.GitRepository
 import git4idea.ui.branch.dashboard.BranchesDashboardActions.DeleteBranchAction
 import git4idea.ui.branch.dashboard.BranchesDashboardActions.FetchAction
-import git4idea.ui.branch.dashboard.BranchesDashboardActions.GroupBranchByDirectoryAction
 import git4idea.ui.branch.dashboard.BranchesDashboardActions.NewBranchAction
 import git4idea.ui.branch.dashboard.BranchesDashboardActions.ShowBranchDiffAction
 import git4idea.ui.branch.dashboard.BranchesDashboardActions.ShowMyBranchesAction
@@ -115,6 +116,16 @@ internal class BranchesDashboardUi(project: Project, private val logUi: Branches
     logUi.vcsLog.jumpToReference(selectedReference, focus)
   }
 
+  internal fun toggleGrouping(key: GroupingKey, state: Boolean) {
+    tree.toggleGrouping(key, state)
+  }
+
+  internal fun isGroupingEnabled(key: GroupingKey) = tree.isGroupingEnabled(key)
+
+  internal fun getSelectedRepositories(branchInfo: BranchInfo): List<GitRepository> {
+    return tree.getSelectedRepositories(branchInfo)
+  }
+
   private val BRANCHES_UI_FOCUS_TRAVERSAL_POLICY = object : ComponentsListFocusTraversalPolicy() {
     override fun getOrderedComponents(): List<Component> = listOf(tree.component, logUi.table,
                                                                   logUi.changesBrowser.preferredFocusedComponent,
@@ -166,7 +177,6 @@ internal class BranchesDashboardUi(project: Project, private val logUi: Branches
     createFocusFilterFieldAction(branchesSearchField)
     installPasteAction(tree)
 
-    val groupByDirectoryAction = GroupBranchByDirectoryAction(tree)
     val toggleFavoriteAction = ToggleFavoriteAction()
     val fetchAction = FetchAction(this)
     val showMyBranchesAction = ShowMyBranchesAction(uiController)
@@ -193,7 +203,7 @@ internal class BranchesDashboardUi(project: Project, private val logUi: Branches
     group.add(actionManager.getAction("Git.Log.Branches.Navigate.Log.To.Selected.Branch"))
     group.add(Separator())
     group.add(settings)
-    group.add(groupByDirectoryAction)
+    group.add(actionManager.getAction("Git.Log.Branches.Grouping.Settings"))
     group.add(expandAllAction)
     group.add(collapseAllAction)
 
@@ -217,7 +227,6 @@ internal class BranchesDashboardUi(project: Project, private val logUi: Branches
     branchesTreeWithLogPanel.addToLeft(branchesPanelExpandableController.expandControlPanel).addToCenter(branchViewSplitter)
     mainPanel.isFocusCycleRoot = true
     mainPanel.focusTraversalPolicy = BRANCHES_UI_FOCUS_TRAVERSAL_POLICY
-    startLoadingBranches()
   }
 
   fun toggleBranchesPanelVisibility() {
@@ -276,6 +285,10 @@ internal class BranchesDashboardUi(project: Project, private val logUi: Branches
 
   fun refreshTree() {
     tree.refreshTree()
+  }
+
+  fun refreshTreeModel() {
+    tree.refreshNodeDescriptorsModel()
   }
 
   fun startLoadingBranches() {

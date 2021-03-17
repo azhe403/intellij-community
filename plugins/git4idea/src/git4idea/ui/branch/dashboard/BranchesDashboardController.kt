@@ -3,6 +3,7 @@ package git4idea.ui.branch.dashboard
 
 import com.intellij.dvcs.branch.DvcsBranchManager
 import com.intellij.dvcs.branch.DvcsBranchManager.DvcsBranchManagerListener
+import com.intellij.dvcs.branch.GroupingKey
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.DataKey
 import com.intellij.openapi.actionSystem.DataProvider
@@ -59,11 +60,33 @@ internal class BranchesDashboardController(private val project: Project,
     ui.navigateToSelectedBranch(true)
   }
 
-  fun checkForBranchesUpdate(): Boolean {
+  fun toggleGrouping(key: GroupingKey, state: Boolean) {
+    ui.toggleGrouping(key, state)
+  }
+
+  fun getSelectedRepositories(branchInfo: BranchInfo) = ui.getSelectedRepositories(branchInfo)
+
+  fun reloadBranches(): Boolean {
+    val forceReload = ui.isGroupingEnabled(GroupingKey.GROUPING_BY_REPOSITORY)
+    val changed = reloadBranches(forceReload)
+    if (!changed) return false
+
+    if (showOnlyMy) {
+      updateBranchesIsMyState()
+    }
+    else {
+      ui.refreshTreeModel()
+    }
+    return changed
+  }
+
+  private fun reloadBranches(force: Boolean): Boolean {
+    ui.startLoadingBranches()
+
     val newLocalBranches = BranchesDashboardUtil.getLocalBranches(project)
     val newRemoteBranches = BranchesDashboardUtil.getRemoteBranches(project)
-    val localChanged = localBranches.size != newLocalBranches.size || !localBranches.containsAll(newLocalBranches)
-    val remoteChanged = remoteBranches.size != newRemoteBranches.size || !remoteBranches.containsAll(newRemoteBranches)
+    val localChanged = force || localBranches.size != newLocalBranches.size || !localBranches.containsAll(newLocalBranches)
+    val remoteChanged = force || remoteBranches.size != newRemoteBranches.size || !remoteBranches.containsAll(newRemoteBranches)
 
     if (localChanged) {
       localBranches.clear()
@@ -74,33 +97,23 @@ internal class BranchesDashboardController(private val project: Project,
       remoteBranches.addAll(newRemoteBranches)
     }
 
-    val changed = localChanged || remoteChanged
-    if (changed) {
-      if (showOnlyMy) {
-        updateBranchesIsMyState()
-      }
-      ui.stopLoadingBranches()
-    }
-    return changed
+    ui.stopLoadingBranches()
+    return localChanged || remoteChanged
   }
 
   private fun updateBranchesIsFavoriteState() {
-    var changed = false
     with(project.service<GitBranchManager>()) {
       for (localBranch in localBranches) {
         val isFavorite = localBranch.repositories.any { isFavorite(GitBranchType.LOCAL, it, localBranch.branchName) }
-        changed = changed or (localBranch.isFavorite != isFavorite)
         localBranch.apply { this.isFavorite = isFavorite }
       }
       for (remoteBranch in remoteBranches) {
         val isFavorite = remoteBranch.repositories.any { isFavorite(GitBranchType.REMOTE, it, remoteBranch.branchName) }
-        changed = changed or (remoteBranch.isFavorite != isFavorite)
         remoteBranch.apply { this.isFavorite = isFavorite }
       }
     }
-    if (changed) {
-      ui.refreshTree()
-    }
+
+    ui.refreshTree()
   }
 
   private fun updateBranchesIsMyState() {

@@ -1,9 +1,11 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.ui.branch.dashboard
 
 import com.intellij.dvcs.DvcsUtil
 import com.intellij.dvcs.branch.GroupingKey
 import com.intellij.dvcs.branch.isGroupingEnabled
+import com.intellij.dvcs.ui.RepositoryChangesBrowserNode.Companion.getColorManager
+import com.intellij.dvcs.ui.RepositoryChangesBrowserNode.Companion.getRepositoryIcon
 import com.intellij.icons.AllIcons
 import com.intellij.ide.dnd.TransferableList
 import com.intellij.ide.dnd.aware.DnDAwareTree
@@ -28,12 +30,14 @@ import com.intellij.util.ui.UIUtil
 import com.intellij.util.ui.tree.TreeUtil
 import com.intellij.vcs.log.util.VcsLogUtil
 import git4idea.config.GitVcsSettings
+import git4idea.repo.GitRepository
 import git4idea.repo.GitRepositoryManager
 import git4idea.ui.branch.dashboard.BranchesDashboardActions.BranchesTreeActionGroup
 import icons.DvcsImplIcons
 import java.awt.GraphicsEnvironment
 import java.awt.datatransfer.Transferable
 import java.awt.event.MouseEvent
+import java.util.*
 import javax.swing.JComponent
 import javax.swing.JTree
 import javax.swing.TransferHandler
@@ -60,6 +64,8 @@ internal class BranchesTreeComponent(project: Project) : DnDAwareTree() {
 
   private inner class BranchTreeCellRenderer(project: Project) : ColoredTreeCellRenderer() {
     private val repositoryManager = GitRepositoryManager.getInstance(project)
+    private val colorManager = getColorManager(project)
+    private val branchSettings = GitVcsSettings.getInstance(project).branchSettings
 
     override fun customizeCellRenderer(tree: JTree,
                                        value: Any?,
@@ -74,29 +80,22 @@ internal class BranchesTreeComponent(project: Project) : DnDAwareTree() {
       val branchInfo = descriptor.branchInfo
       val isBranchNode = descriptor.type == NodeType.BRANCH
       val isGroupNode = descriptor.type == NodeType.GROUP_NODE
+      val isRepositoryNode = descriptor.type == NodeType.GROUP_REPOSITORY_NODE
 
       icon = when {
-        isBranchNode && branchInfo != null && branchInfo.isCurrent && branchInfo.isFavorite -> {
-          DvcsImplIcons.CurrentBranchFavoriteLabel
-        }
-        isBranchNode && branchInfo != null && branchInfo.isCurrent -> {
-          DvcsImplIcons.CurrentBranchLabel
-        }
-        isBranchNode && branchInfo != null && branchInfo.isFavorite -> {
-          AllIcons.Nodes.Favorite
-        }
-        isBranchNode -> {
-          AllIcons.Vcs.BranchNode
-        }
-        isGroupNode -> {
-          PlatformIcons.FOLDER_ICON
-        }
+        isBranchNode && branchInfo != null && branchInfo.isCurrent && branchInfo.isFavorite -> DvcsImplIcons.CurrentBranchFavoriteLabel
+        isBranchNode && branchInfo != null && branchInfo.isCurrent -> DvcsImplIcons.CurrentBranchLabel
+        isBranchNode && branchInfo != null && branchInfo.isFavorite -> AllIcons.Nodes.Favorite
+        isBranchNode -> AllIcons.Vcs.BranchNode
+        isGroupNode -> PlatformIcons.FOLDER_ICON
+        isRepositoryNode -> getRepositoryIcon(descriptor.repository!!, colorManager)
         else -> null
       }
 
       append(value.getTextRepresentation(), SimpleTextAttributes.REGULAR_ATTRIBUTES, true)
 
-      if (branchInfo != null && branchInfo.repositories.size < repositoryManager.repositories.size) {
+      val repositoryGrouping = branchSettings.isGroupingEnabled(GroupingKey.GROUPING_BY_REPOSITORY)
+      if (!repositoryGrouping && branchInfo != null && branchInfo.repositories.size < repositoryManager.repositories.size) {
         append(" (${DvcsUtil.getShortNames(branchInfo.repositories)})", SimpleTextAttributes.GRAYED_ATTRIBUTES)
       }
     }
@@ -127,10 +126,10 @@ internal class BranchesTreeComponent(project: Project) : DnDAwareTree() {
     }
   }
 
-  fun getSelectedBranches(): Set<BranchInfo> {
+  fun getSelectedBranches(): List<BranchInfo> {
     return getSelectedNodes()
       .mapNotNull { it.getNodeDescriptor().branchInfo }
-      .toSet()
+      .toList()
   }
 
   fun getSelectedNodes(): Sequence<BranchTreeNode> {
@@ -148,6 +147,29 @@ internal class BranchesTreeComponent(project: Project) : DnDAwareTree() {
       .filter { it.getNodeDescriptor().type == NodeType.GROUP_NODE && it.getNodeDescriptor().parent?.type == NodeType.REMOTE_ROOT }
       .mapNotNull { it.getNodeDescriptor().displayName }
       .toSet()
+  }
+
+  fun getSelectedRepositories(branchInfo: BranchInfo): Set<GitRepository> {
+    val paths = selectionPaths ?: return emptySet()
+    return paths.asSequence()
+      .filter {
+        val lastPathComponent = it.lastPathComponent
+        lastPathComponent is BranchTreeNode && lastPathComponent.getNodeDescriptor().branchInfo == branchInfo
+      }
+      .mapNotNull { findNodeDescriptorInPath(it) { descriptor -> Objects.nonNull(descriptor.repository) } }
+      .mapNotNull(BranchNodeDescriptor::repository)
+      .toSet()
+  }
+
+  private fun findNodeDescriptorInPath(path: TreePath, condition: (BranchNodeDescriptor) -> Boolean): BranchNodeDescriptor? {
+    var curPath: TreePath? = path
+    while (curPath != null) {
+      val node = curPath.lastPathComponent as? BranchTreeNode
+      if (node != null && condition(node.getNodeDescriptor())) return node.getNodeDescriptor()
+      curPath = curPath.parentPath
+    }
+
+    return null
   }
 }
 
@@ -170,12 +192,20 @@ internal class FilteringBranchesTree(project: Project,
   private var localNodeExist = false
   private var remoteNodeExist = false
 
-  private var useDirectoryGrouping = GitVcsSettings.getInstance(project).branchSettings.isGroupingEnabled(GroupingKey.GROUPING_BY_DIRECTORY)
+  private val groupingConfig: MutableMap<GroupingKey, Boolean> =
+    with(GitVcsSettings.getInstance(project).branchSettings) {
+      hashMapOf(
+        GroupingKey.GROUPING_BY_DIRECTORY to isGroupingEnabled(GroupingKey.GROUPING_BY_DIRECTORY),
+        GroupingKey.GROUPING_BY_REPOSITORY to isGroupingEnabled(GroupingKey.GROUPING_BY_REPOSITORY)
+      )
+    }
 
-  fun toggleDirectoryGrouping(state: Boolean) {
-    useDirectoryGrouping = state
+  fun toggleGrouping(key: GroupingKey, state: Boolean) {
+    groupingConfig[key] = state
     refreshTree()
   }
+
+  fun isGroupingEnabled(key: GroupingKey) = groupingConfig[key] == true
 
   init {
     runInEdt {
@@ -245,7 +275,10 @@ internal class FilteringBranchesTree(project: Project,
     })
   }
 
-  fun getSelectedBranchNames() = getSelectedBranches().map(BranchInfo::branchName)
+  fun getSelectedRepositories(branchInfo: BranchInfo): List<GitRepository> {
+    val selectedRepositories = component.getSelectedRepositories(branchInfo)
+    return if (selectedRepositories.isNotEmpty()) selectedRepositories.toList() else branchInfo.repositories
+  }
 
   fun getSelectedBranches() = component.getSelectedBranches()
 
@@ -304,6 +337,7 @@ internal class FilteringBranchesTree(project: Project,
       NodeType.LOCAL_ROOT -> localBranchesNode.getNodeDescriptor().getDirectChildren()
       NodeType.REMOTE_ROOT -> remoteBranchesNode.getNodeDescriptor().getDirectChildren()
       NodeType.GROUP_NODE -> nodeDescriptor.getDirectChildren()
+      NodeType.GROUP_REPOSITORY_NODE -> nodeDescriptor.getDirectChildren()
       else -> emptyList() //leaf branch node
     }
 
@@ -317,7 +351,7 @@ internal class FilteringBranchesTree(project: Project,
   }
 
   fun rebuildTree(initial: Boolean): Boolean {
-    val rebuilded = buildTreeNodesIfNeeded()
+    val rebuilded = uiController.reloadBranches()
     val treeState = project.service<BranchesTreeStateHolder>()
     if (!initial) {
       treeState.createNewState()
@@ -342,25 +376,14 @@ internal class FilteringBranchesTree(project: Project,
     treeState.applyStateToTree()
   }
 
-  private fun buildTreeNodesIfNeeded(): Boolean {
-    with(uiController) {
-      val changed = checkForBranchesUpdate()
-      if (!changed) return false
-
-      refreshNodeDescriptorsModel()
-
-      return changed
-    }
-  }
-
-  private fun refreshNodeDescriptorsModel() {
+  fun refreshNodeDescriptorsModel() {
     with(uiController) {
       nodeDescriptorsModel.clear()
 
       localNodeExist = localBranches.isNotEmpty()
       remoteNodeExist = remoteBranches.isNotEmpty()
 
-      nodeDescriptorsModel.populateFrom((localBranches.asSequence() + remoteBranches.asSequence()).filter(branchFilter), useDirectoryGrouping)
+      nodeDescriptorsModel.populateFrom((localBranches.asSequence() + remoteBranches.asSequence()).filter(branchFilter), groupingConfig)
     }
   }
 

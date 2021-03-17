@@ -104,7 +104,9 @@ public final class MavenIndicesManager implements Disposable {
     if (doInitIndicesFields()) return;
 
     ArrayList<MavenArchetype> archetypes = loadUserArchetypes(getUserArchetypesFile());
-    myUserArchetypes = archetypes;
+    if (archetypes != null) {
+      myUserArchetypes = archetypes;
+    }
   }
 
   private synchronized boolean doInitIndicesFields() {
@@ -215,7 +217,7 @@ public final class MavenIndicesManager implements Disposable {
     }
   }
 
-  public synchronized List<MavenIndex> ensureIndicesExist(Collection<Pair<String, String>> remoteRepositoriesIdsAndUrls) {
+  public List<MavenIndex> ensureIndicesExist(Collection<Pair<String, String>> remoteRepositoriesIdsAndUrls) {
     // MavenIndices.add method returns an existing index if it has already been added, thus we have to use set here.
     LinkedHashSet<MavenIndex> result = new LinkedHashSet<>();
 

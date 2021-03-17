@@ -18,6 +18,7 @@ import com.intellij.openapi.progress.EmptyProgressIndicator;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
+import com.intellij.openapi.progress.util.BackgroundTaskUtil;
 import com.intellij.openapi.progress.util.ProgressIndicatorUtils;
 import com.intellij.openapi.progress.util.ProgressWrapper;
 import com.intellij.openapi.project.DumbService;
@@ -70,7 +71,7 @@ final class ActionUpdater {
   private final String myPlace;
   private final boolean myContextMenuAction;
   private final boolean myToolbarAction;
-  private final Project myProject;
+  private final @Nullable Project myProject;
 
   private final Map<AnAction, Presentation> myUpdatedPresentations = new ConcurrentHashMap<>();
   private final Map<ActionGroup, List<AnAction>> myGroupChildren = new ConcurrentHashMap<>();
@@ -167,13 +168,12 @@ final class ActionUpdater {
     if (myVisitor == null) {
       return myDataContext;
     }
-    if (myDataContext instanceof AsyncDataContext) { // it's very expensive to create async-context for each custom component
-      return myDataContext;                          // and such actions (with custom components, i.e. buttons from dialogs) updates synchronously now
-    }
-    if (myDataContext instanceof PreCachedDataContext) {
+    // it's very expensive to create async-context for each custom component
+    // and such actions (with custom components, i.e. buttons from dialogs) updates synchronously now
+    if (Utils.isAsyncDataContext(myDataContext)) {
       return myDataContext;
     }
-    final Component component = myVisitor.getCustomComponent(action);
+    Component component = myVisitor.getCustomComponent(action);
     return component != null ? DataManager.getInstance().getDataContext(component) : myDataContext;
   }
 
@@ -294,7 +294,8 @@ final class ActionUpdater {
     }
     ourPromises.add(promise);
 
-    ourExecutor.execute(() -> ProgressManager.getInstance().executeProcessUnderProgress(() -> {
+    Disposable disposableParent = myProject != null ? myProject : ApplicationManager.getApplication();
+    ourExecutor.execute(() -> BackgroundTaskUtil.runUnderDisposeAwareIndicator(disposableParent, () -> {
       while (promise.getState() == Promise.State.PENDING) {
         try {
           indicator.checkCanceled();

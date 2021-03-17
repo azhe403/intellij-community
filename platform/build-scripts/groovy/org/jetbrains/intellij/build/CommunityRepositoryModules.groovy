@@ -421,12 +421,19 @@ final class CommunityRepositoryModules {
 
       // contents of "/plugins/android/lib/layoutlib/" will be downloaded by the AndroidPlugin on demand
 
+      // Android Studio project libraries that implicitly go to Android Studio platform libs
+      withProjectLibrary("kotlinx-coroutines-guava")
+      withProjectLibrary("sqlite-inspector-proto")
       withProjectLibrary("transport-proto")
       withProjectLibrary("perfetto-proto")
       withProjectLibrary("studio-proto")
       withProjectLibrary("studio-grpc")
       withProjectLibrary("layoutinspector-proto")
       withProjectLibrary("emulator-proto")
+
+      // Asset Studio images.
+      withResourceFromModule("intellij.android.core", "resources/images/asset_studio", "resources/images/asset_studio")
+
       // Profiler downloader will download all the other profiler libraries: profilers-transform.jar, perfa_okhttp.dex, perfa, perfd, simpleperf
       // Profiler downloader will also download instant run installers: /resources/installer
       // Profiler downloader will also download instant run transport: /resources/transport
