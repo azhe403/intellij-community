@@ -238,12 +238,13 @@ public class GradleTaskManager implements ExternalSystemTaskManager<GradleExecut
       enhancementParameters.put(GradleProjectResolverExtension.TEST_LAUNCHER_WILL_BE_USED_KEY,
                                 String.valueOf(testLauncherIsApplicable(taskNames, effectiveSettings)));
 
+      enhancementParameters.put(GradleProjectResolverExtension.GRADLE_VERSION, gradleVersion);
+
 
       resolverExtension.enhanceTaskProcessing(taskNames, initScriptConsumer, enhancementParameters);
     }
 
     if (!initScripts.isEmpty()) {
-      GradleExecutionHelper.attachTargetPathMapperInitScript(effectiveSettings);
       writeAndAppendScript(effectiveSettings, StringUtil.join(initScripts, System.lineSeparator()), "ijresolvers");
     }
 
@@ -264,6 +265,10 @@ public class GradleTaskManager implements ExternalSystemTaskManager<GradleExecut
       catch (IllegalArgumentException e) {
         LOG.error("Failed to parse gradle version value [" + gradleVersion + "]", e);
       }
+    }
+
+    if (effectiveSettings.getArguments().contains(GradleConstants.INIT_SCRIPT_CMD_OPTION)) {
+      GradleExecutionHelper.attachTargetPathMapperInitScript(effectiveSettings);
     }
   }
 
@@ -346,7 +351,7 @@ public class GradleTaskManager implements ExternalSystemTaskManager<GradleExecut
                         "}\n" +
                         "allprojects {\n" +
                         "  afterEvaluate { project ->\n" +
-                        "    if(project.path == '" + gradlePath + "') {\n" +
+                        "    if(project.path == '" + gradlePath + "' || ':' + rootProject.projectDir.name + project.path == '" + gradlePath + "' ) {\n" +
                         "        def overwrite = project.tasks.findByName('" + taskName + "') != null\n" +
                         "        project.tasks.create(name: '" + taskName + "', overwrite: overwrite, type: " + taskClass.getName() + ") {\n" +
                         notNullize(taskConfiguration) + "\n" +

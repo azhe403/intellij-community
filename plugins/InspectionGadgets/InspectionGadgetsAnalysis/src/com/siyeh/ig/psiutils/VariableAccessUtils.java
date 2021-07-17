@@ -297,50 +297,6 @@ public final class VariableAccessUtils {
     return variableIsIncrementedOrDecremented(variable, statement, true);
   }
 
-  @Nullable
-  public static CountingLoopType evaluateCountingLoopType(@NotNull PsiVariable variable, @Nullable PsiStatement statement) {
-    PsiExpressionStatement expressionStatement = ObjectUtils.tryCast(statement, PsiExpressionStatement.class);
-    if (expressionStatement == null) return null;
-    PsiExpression expression = PsiUtil.skipParenthesizedExprDown(expressionStatement.getExpression());
-    if (expression instanceof PsiUnaryExpression) {
-      PsiUnaryExpression unaryExpression = (PsiUnaryExpression)expression;
-      IElementType tokenType = unaryExpression.getOperationTokenType();
-      if (tokenType != JavaTokenType.PLUSPLUS && tokenType != JavaTokenType.MINUSMINUS) return null;
-      PsiExpression operand = unaryExpression.getOperand();
-      if (!ExpressionUtils.isReferenceTo(operand, variable)) return null;
-      return tokenType == JavaTokenType.PLUSPLUS ? CountingLoopType.INC : CountingLoopType.DEC;
-    }
-    if (expression instanceof PsiAssignmentExpression) {
-      PsiAssignmentExpression assignmentExpression = (PsiAssignmentExpression)expression;
-      PsiExpression lhs = assignmentExpression.getLExpression();
-      if (!ExpressionUtils.isReferenceTo(lhs, variable)) return null;
-      PsiExpression rhs = PsiUtil.skipParenthesizedExprDown(assignmentExpression.getRExpression());
-      IElementType tokenType = assignmentExpression.getOperationTokenType();
-      if (tokenType == JavaTokenType.EQ) {
-        PsiBinaryExpression binaryExpression = ObjectUtils.tryCast(rhs, PsiBinaryExpression.class);
-        if (binaryExpression == null) return null;
-        IElementType binaryTokenType = binaryExpression.getOperationTokenType();
-        if (binaryTokenType != JavaTokenType.PLUS && binaryTokenType != JavaTokenType.MINUS) return null;
-        PsiExpression lOperand = binaryExpression.getLOperand();
-        PsiExpression rOperand = binaryExpression.getROperand();
-        if (ExpressionUtils.isOne(lOperand)) {
-          if (!ExpressionUtils.isReferenceTo(rOperand, variable)) return null;
-          return binaryTokenType == JavaTokenType.PLUS ? CountingLoopType.INC : CountingLoopType.DEC;
-        }
-        if (ExpressionUtils.isOne(rOperand)) {
-          if (!ExpressionUtils.isReferenceTo(lOperand, variable)) return null;
-          return binaryTokenType == JavaTokenType.PLUS ? CountingLoopType.INC : CountingLoopType.DEC;
-        }
-      }
-      else if (tokenType == JavaTokenType.PLUSEQ || tokenType == JavaTokenType.MINUSEQ) {
-        if (ExpressionUtils.isOne(rhs)) {
-          return tokenType == JavaTokenType.PLUSEQ ? CountingLoopType.INC : CountingLoopType.DEC;
-        }
-      }
-    }
-    return null;
-  }
-
   private static boolean variableIsIncrementedOrDecremented(@NotNull PsiVariable variable, @Nullable PsiStatement statement,
                                                             boolean incremented) {
     if (!(statement instanceof PsiExpressionStatement)) {
@@ -530,13 +486,14 @@ public final class VariableAccessUtils {
       PsiUtil.isLanguageLevel8OrHigher(initialization) &&
       !HighlightControlFlowUtil.isEffectivelyFinal(initialization, containingScope, null) &&
       HighlightControlFlowUtil.isEffectivelyFinal(variable, containingScope, null);
+    final boolean canCaptureThis = initialization instanceof PsiField && !initialization.hasModifierProperty(PsiModifier.STATIC);
 
     final PsiType variableType = variable.getType();
     final PsiType initializationType = initialization.getType();
     final boolean sameType = Comparing.equal(variableType, initializationType);
     for (PsiReference ref : ReferencesSearch.search(variable, new LocalSearchScope(containingScope))) {
       final PsiElement refElement = ref.getElement();
-      if (finalVariableIntroduction) {
+      if (finalVariableIntroduction || canCaptureThis) {
         final PsiElement element = PsiTreeUtil.getParentOfType(refElement, PsiClass.class, PsiLambdaExpression.class);
         if (element != null && PsiTreeUtil.isAncestor(containingScope, element, true)) {
           return false;
@@ -642,10 +599,5 @@ public final class VariableAccessUtils {
     public Set<PsiVariable> getUsedVariables() {
       return usedVariables;
     }
-  }
-
-  public enum CountingLoopType {
-    INC,
-    DEC
   }
 }

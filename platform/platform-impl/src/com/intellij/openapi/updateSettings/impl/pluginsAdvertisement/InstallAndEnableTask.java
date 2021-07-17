@@ -1,17 +1,18 @@
-// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.updateSettings.impl.pluginsAdvertisement;
 
 import com.intellij.ide.IdeBundle;
 import com.intellij.ide.plugins.IdeaPluginDescriptor;
 import com.intellij.ide.plugins.PluginManagerCore;
 import com.intellij.ide.plugins.PluginNode;
+import com.intellij.ide.plugins.RepositoryHelper;
 import com.intellij.ide.plugins.marketplace.MarketplaceRequests;
+import com.intellij.ide.plugins.org.PluginManagerFilters;
 import com.intellij.openapi.extensions.PluginId;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.updateSettings.impl.PluginDownloader;
-import com.intellij.openapi.updateSettings.impl.UpdateChecker;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -26,7 +27,7 @@ final class InstallAndEnableTask extends Task.Modal {
   private final @NotNull Set<PluginId> myPluginIds;
   private final boolean myShowDialog;
   private @NotNull final Runnable myOnSuccess;
-  private List<? extends IdeaPluginDescriptor> myCustomPlugins;
+  private @Nullable List<PluginNode> myCustomPlugins;
 
   InstallAndEnableTask(@Nullable Project project,
                        @NotNull Set<PluginId> pluginIds,
@@ -41,15 +42,15 @@ final class InstallAndEnableTask extends Task.Modal {
   @Override
   public void run(@NotNull ProgressIndicator indicator) {
     try {
-      List<PluginNode> marketplacePlugins = MarketplaceRequests.getInstance().loadLastCompatiblePluginDescriptors(myPluginIds);
+      List<PluginNode> marketplacePlugins = MarketplaceRequests.loadLastCompatiblePluginDescriptors(myPluginIds);
       myCustomPlugins = PluginsAdvertiser.loadPluginsFromCustomRepositories(indicator);
 
-      List<IdeaPluginDescriptor> descriptors = new ArrayList<>(UpdateChecker.mergePluginsFromRepositories(marketplacePlugins,
-                                                                                                          myCustomPlugins,
-                                                                                                          true));
+      List<IdeaPluginDescriptor> descriptors =
+        new ArrayList<>(RepositoryHelper.mergePluginsFromRepositories(marketplacePlugins, myCustomPlugins, true));
+
+      var org = PluginManagerFilters.getInstance();
       for (IdeaPluginDescriptor descriptor : PluginManagerCore.getPlugins()) {
-        if (!descriptor.isEnabled() &&
-            PluginManagerCore.isCompatible(descriptor)) {
+        if (!descriptor.isEnabled() && PluginManagerCore.isCompatible(descriptor) && org.allowInstallingPlugin(descriptor)) {
           descriptors.add(descriptor);
         }
       }
@@ -71,14 +72,16 @@ final class InstallAndEnableTask extends Task.Modal {
       return;
     }
 
-    new PluginsAdvertiserDialog(null,
+    new PluginsAdvertiserDialog(myProject,
                                 myPlugins,
                                 myCustomPlugins,
-                                result -> {
-                                  if (result) {
-                                    myOnSuccess.run();
-                                  }
-                                  return null;
-                                }).doInstallPlugins(myShowDialog);
+                                this::runOnSuccess)
+      .doInstallPlugins(myShowDialog);
+  }
+
+  private void runOnSuccess(boolean onSuccess) {
+    if (onSuccess) {
+      myOnSuccess.run();
+    }
   }
 }

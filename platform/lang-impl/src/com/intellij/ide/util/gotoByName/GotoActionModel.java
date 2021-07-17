@@ -53,7 +53,6 @@ import java.lang.ref.WeakReference;
 import java.util.List;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -66,10 +65,9 @@ public final class GotoActionModel implements ChooseByNameModel, Comparator<Obje
   private final @Nullable Project myProject;
   private final @Nullable WeakReference<Editor> myEditor;
   private final DataContext myDataContext;
-  private final AtomicReference<UpdateSession> myUpdateSession;
+  private volatile UpdateSession myUpdateSession;
 
   private final ActionManager myActionManager = ActionManager.getInstance();
-  private final GotoActionOrderStrategy myOrderStrategy = new GotoActionOrderStrategy();
 
   private final Map<AnAction, GroupMapping> myActionGroups = new ConcurrentHashMap<>();
 
@@ -92,7 +90,7 @@ public final class GotoActionModel implements ChooseByNameModel, Comparator<Obje
     myProject = project;
     myEditor = new WeakReference<>(editor);
     myDataContext = Utils.wrapDataContext(DataManager.getInstance().getDataContext(component));
-    myUpdateSession = new AtomicReference<>(newUpdateSession());
+    myUpdateSession = newUpdateSession();
   }
 
   @NotNull
@@ -103,16 +101,17 @@ public final class GotoActionModel implements ChooseByNameModel, Comparator<Obje
 
   void buildGroupMappings() {
     if (!myActionGroups.isEmpty()) return;
+    ActionGroup mainMenu = Objects.requireNonNull((ActionGroup)myActionManager.getActionOrStub(IdeActions.GROUP_MAIN_MENU));
+    ActionGroup keymapOthers = Objects.requireNonNull((ActionGroup)myActionManager.getActionOrStub("Other.KeymapGroup"));
 
-    ActionGroup mainMenu = (ActionGroup)myActionManager.getActionOrStub(IdeActions.GROUP_MAIN_MENU);
-    ActionGroup keymapOthers = (ActionGroup)myActionManager.getActionOrStub("Other.KeymapGroup");
-    assert mainMenu != null && keymapOthers != null;
-    collectActions(myActionGroups, mainMenu, Collections.emptyList(), false);
+    Map<AnAction, GroupMapping> mainGroups = new HashMap<>();
+    collectActions(mainGroups, mainMenu, Collections.emptyList(), false);
 
-    Map<AnAction, GroupMapping> keymapActionGroups = new HashMap<>();
-    collectActions(keymapActionGroups, keymapOthers, Collections.emptyList(), true);
-    // Let menu groups have priority over keymap (and do not introduce ambiguity)
-    keymapActionGroups.forEach(myActionGroups::putIfAbsent);
+    Map<AnAction, GroupMapping> otherGroups = new HashMap<>();
+    collectActions(otherGroups, keymapOthers, Collections.emptyList(), true);
+
+    myActionGroups.putAll(mainGroups);
+    otherGroups.forEach(myActionGroups::putIfAbsent);
   }
 
   @NotNull
@@ -137,7 +136,7 @@ public final class GotoActionModel implements ChooseByNameModel, Comparator<Obje
     return IdeBundle.message("prompt.gotoaction.enter.action");
   }
 
-  @Nullable
+  @NotNull
   @Override
   public String getCheckBoxName() {
     return IdeBundle.message("checkbox.disabled.included");
@@ -168,19 +167,21 @@ public final class GotoActionModel implements ChooseByNameModel, Comparator<Obje
   @ApiStatus.Internal
   public void clearCaches() {
     myActionGroups.clear();
-    myUpdateSession.set(newUpdateSession());
+    myUpdateSession = newUpdateSession();
   }
 
   public static class MatchedValue {
     @NotNull public final Object value;
     @NotNull final String pattern;
     final int matchingDegree;
+    final boolean isAbbreviation;
 
     MatchedValue(@NotNull Object value, @NotNull String pattern) {
       assert value instanceof OptionDescription || value instanceof ActionWrapper;
       this.value = value;
       this.pattern = pattern;
       matchingDegree = calcMatchingDegree();
+      this.isAbbreviation = false;
     }
 
     MatchedValue(@NotNull Object value, @NotNull String pattern, int degree) {
@@ -188,6 +189,15 @@ public final class GotoActionModel implements ChooseByNameModel, Comparator<Obje
       this.value = value;
       this.pattern = pattern;
       matchingDegree = degree;
+      this.isAbbreviation = false;
+    }
+
+    MatchedValue(@NotNull Object value, @NotNull String pattern, int degree, boolean isAbbreviation) {
+      assert value instanceof OptionDescription || value instanceof ActionWrapper;
+      this.value = value;
+      this.pattern = pattern;
+      matchingDegree = degree;
+      this.isAbbreviation = isAbbreviation;
     }
 
     @Nullable
@@ -204,6 +214,10 @@ public final class GotoActionModel implements ChooseByNameModel, Comparator<Obje
 
     public int getMatchingDegree() {
       return matchingDegree;
+    }
+
+    public boolean isAbbreviation() {
+      return isAbbreviation;
     }
 
     private int calcMatchingDegree() {
@@ -287,10 +301,6 @@ public final class GotoActionModel implements ChooseByNameModel, Comparator<Obje
     return new GotoActionListCellRenderer(this::getGroupName);
   }
 
-  private int compareActions(@NotNull AnAction first, @NotNull AnAction second) {
-    return myOrderStrategy.compare(first, second);
-  }
-
   @NotNull
   private static JLabel createIconLabel(@Nullable Icon icon, boolean disabled) {
     LayeredIcon layeredIcon = new LayeredIcon(2);
@@ -322,6 +332,7 @@ public final class GotoActionModel implements ChooseByNameModel, Comparator<Obje
    * This method may be removed in future versions
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public static Color defaultActionForeground(boolean isSelected, @Nullable Presentation presentation) {
     return defaultActionForeground(isSelected, true, presentation);
   }
@@ -357,7 +368,7 @@ public final class GotoActionModel implements ChooseByNameModel, Comparator<Obje
     return myConfigurablesNames.getValue();
   }
 
-  private void collectActions(@NotNull Map<AnAction, GroupMapping> actionGroups,
+  private void collectActions(@NotNull Map<? super AnAction, GroupMapping> actionGroups,
                               @NotNull ActionGroup group,
                               @NotNull List<ActionGroup> path,
                               boolean showNonPopupGroups) {
@@ -365,7 +376,7 @@ public final class GotoActionModel implements ChooseByNameModel, Comparator<Obje
 
     List<? extends AnAction> actions = ReadAction.nonBlocking(() -> {
       try {
-        return myUpdateSession.get().children(group);
+        return myUpdateSession.children(group);
       }
       catch (PluginException e) {
         LOG.error(e);
@@ -376,7 +387,7 @@ public final class GotoActionModel implements ChooseByNameModel, Comparator<Obje
 
     boolean hasRegisteredChild = ContainerUtil.exists(actions, action -> myActionManager.getId(action) != null);
     if (!hasRegisteredChild) {
-      GroupMapping mapping = actionGroups.computeIfAbsent(group, (key) -> new GroupMapping(showNonPopupGroups));
+      GroupMapping mapping = actionGroups.computeIfAbsent(group, __ -> new GroupMapping(showNonPopupGroups));
       mapping.addPath(path);
     }
 
@@ -387,7 +398,7 @@ public final class GotoActionModel implements ChooseByNameModel, Comparator<Obje
         collectActions(actionGroups, (ActionGroup)action, newPath, showNonPopupGroups);
       }
       else {
-        GroupMapping mapping = actionGroups.computeIfAbsent(action, (key) -> new GroupMapping(showNonPopupGroups));
+        GroupMapping mapping = actionGroups.computeIfAbsent(action, __ -> new GroupMapping(showNonPopupGroups));
         mapping.addPath(newPath);
       }
     }
@@ -454,8 +465,9 @@ public final class GotoActionModel implements ChooseByNameModel, Comparator<Obje
     }
 
     for (GotoActionAliasMatcher m : GotoActionAliasMatcher.EP_NAME.getExtensions()) {
-      if (m.match(anAction, pattern)) {
-        return MatchMode.NAME;
+      MatchMode match = m.matchAction(anAction, pattern);
+      if (match != MatchMode.NONE) {
+        return match;
       }
     }
     return MatchMode.NONE;
@@ -475,8 +487,9 @@ public final class GotoActionModel implements ChooseByNameModel, Comparator<Obje
     return myDataContext;
   }
 
-  UpdateSession getUpdateSession() {
-    return myUpdateSession.get();
+  @NotNull
+  private UpdateSession getUpdateSession() {
+    return myUpdateSession;
   }
 
   @NotNull
@@ -484,10 +497,6 @@ public final class GotoActionModel implements ChooseByNameModel, Comparator<Obje
     TreeSet<Object> objects = new TreeSet<>(this);
     objects.addAll(elements);
     return objects;
-  }
-
-  public enum MatchMode {
-    NONE, INTENTION, NAME, DESCRIPTION, GROUP, NON_MENU, SYNONYM
   }
 
   @Override
@@ -618,21 +627,25 @@ public final class GotoActionModel implements ChooseByNameModel, Comparator<Obje
     @NotNull private final MatchMode myMode;
     @Nullable private final GroupMapping myGroupMapping;
     private final GotoActionModel myModel;
-    private volatile Presentation myPresentation;
+    private final Presentation myPresentation;
     private final String myActionText;
 
     public ActionWrapper(@NotNull AnAction action,
                          @Nullable GroupMapping groupMapping,
                          @NotNull MatchMode mode,
-                         GotoActionModel model) {
+                         @NotNull GotoActionModel model) {
       myAction = action;
       myMode = mode;
       myGroupMapping = groupMapping;
       myModel = model;
-
-      Presentation presentation = action.getTemplatePresentation().clone();
-      action.applyTextOverride(ActionPlaces.ACTION_SEARCH, presentation);
-      myActionText = presentation.getText();
+      myPresentation = ReadAction.nonBlocking(() -> {
+          if (myGroupMapping != null) {
+            myGroupMapping.updateBeforeShow(myModel.getUpdateSession());
+          }
+          return myModel.getUpdateSession().presentation(myAction);
+        })
+        .executeSynchronously();
+      myActionText = GotoActionItemProvider.getActionText(action);
     }
 
     public String getActionText() {
@@ -652,9 +665,6 @@ public final class GotoActionModel implements ChooseByNameModel, Comparator<Obje
     public int compareWeights(@NotNull ActionWrapper o) {
       int compared = myMode.compareTo(o.getMode());
       if (compared != 0) return compared;
-
-      int byStat = myModel.compareActions(getAction(), o.getAction());
-      if (byStat != 0) return byStat;
 
       Presentation myPresentation = myAction.getTemplatePresentation();
       Presentation oPresentation = o.getAction().getTemplatePresentation();
@@ -681,16 +691,6 @@ public final class GotoActionModel implements ChooseByNameModel, Comparator<Obje
 
     @NotNull
     public Presentation getPresentation() {
-      if (myPresentation != null) {
-        return myPresentation;
-      }
-      myPresentation = ReadAction.nonBlocking(() -> {
-        if (myGroupMapping != null) {
-          myGroupMapping.updateBeforeShow(myModel.getUpdateSession());
-        }
-        return myModel.getUpdateSession().presentation(myAction);
-      })
-        .executeSynchronously();
       return myPresentation;
     }
 

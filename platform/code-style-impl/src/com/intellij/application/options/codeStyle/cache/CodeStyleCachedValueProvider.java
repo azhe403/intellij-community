@@ -11,6 +11,7 @@ import com.intellij.openapi.util.SimpleModificationTracker;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.codeStyle.CodeStyleSettings;
 import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
+import com.intellij.psi.codeStyle.FileCodeStyleProvider;
 import com.intellij.psi.codeStyle.modifier.CodeStyleSettingsModifier;
 import com.intellij.psi.codeStyle.modifier.TransientCodeStyleSettings;
 import com.intellij.psi.util.CachedValueProvider;
@@ -119,6 +120,7 @@ class CodeStyleCachedValueProvider implements CachedValueProvider<CodeStyleSetti
     private                   CancellablePromise<Void>  myPromise;
     private final             List<Runnable>            myScheduledRunnables = new ArrayList<>();
     private                   long                      myOldTrackerSetting;
+    private                   boolean                   myInsideRestartedComputation = false;
 
     private AsyncComputation(@NotNull Project project) {
       myProject = project;
@@ -188,8 +190,7 @@ class CodeStyleCachedValueProvider implements CachedValueProvider<CodeStyleSetti
         if (LOG.isDebugEnabled()) {
           LOG.debug("Computation started for " + file.getName());
         }
-        @SuppressWarnings("deprecation")
-        CodeStyleSettings currSettings = mySettingsManager.getCurrentSettings();
+        CodeStyleSettings currSettings = getCurrentSettings(file);
         myOldTrackerSetting = currSettings.getModificationTracker().getModificationCount();
         if (currSettings != mySettingsManager.getTemporarySettings()) {
           TransientCodeStyleSettings modifiableSettings = new TransientCodeStyleSettings(file, currSettings);
@@ -207,8 +208,10 @@ class CodeStyleCachedValueProvider implements CachedValueProvider<CodeStyleSetti
             }
           }
         }
-        myCurrResult = currSettings;
-        myTracker.incModificationCount();
+        if (myCurrResult != currSettings) {
+          myCurrResult = currSettings;
+          myTracker.incModificationCount();
+        }
         if (LOG.isDebugEnabled()) {
           LOG.debug("Computation ended for " + file.getName());
         }
@@ -216,6 +219,15 @@ class CodeStyleCachedValueProvider implements CachedValueProvider<CodeStyleSetti
       finally {
         myComputationLock.unlock();
       }
+    }
+
+    @SuppressWarnings("deprecation")
+    private CodeStyleSettings getCurrentSettings(@NotNull PsiFile file) {
+      CodeStyleSettings result = FileCodeStyleProvider.EP_NAME.computeSafeIfAny(provider -> provider.getSettings(file));
+      if (result != null) {
+        return result;
+      }
+      return mySettingsManager.getCurrentSettings();
     }
 
     @Nullable
@@ -255,8 +267,14 @@ class CodeStyleCachedValueProvider implements CachedValueProvider<CodeStyleSetti
       @SuppressWarnings("deprecation")
       CodeStyleSettings currSettings = mySettingsManager.getCurrentSettings();
       long newTrackerSetting = currSettings.getModificationTracker().getModificationCount();
-      if (myOldTrackerSetting < newTrackerSetting) {
-        start();
+      if (myOldTrackerSetting < newTrackerSetting && !myInsideRestartedComputation) {
+        myInsideRestartedComputation = true;
+        try {
+          start();
+        } finally {
+          myInsideRestartedComputation = false;
+        }
+
         return;
       }
 

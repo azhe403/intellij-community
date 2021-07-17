@@ -173,6 +173,17 @@ data class ClientId(val value: String) {
         }
 
         @JvmStatic
+        fun <T> decorateFunction(action: () -> T): () -> T {
+          if (propagateAcrossThreads) return action
+          val currentId = currentOrNull
+          return {
+            withClientId(currentId) {
+              return@withClientId action()
+            }
+          }
+        }
+
+        @JvmStatic
         fun decorateRunnable(runnable: Runnable) : Runnable {
             if (!propagateAcrossThreads) {
                 return runnable
@@ -229,6 +240,10 @@ data class ClientId(val value: String) {
 
 fun isForeignClientOnServer(): Boolean {
     return !ClientId.isCurrentlyUnderLocalId && ClientId.localId == ClientId.defaultLocalId
+}
+
+fun isOnGuest(): Boolean {
+    return ClientId.localId != ClientId.defaultLocalId
 }
 
 fun getStackTrace(): String {

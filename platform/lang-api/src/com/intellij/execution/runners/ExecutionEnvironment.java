@@ -1,15 +1,16 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.runners;
 
 import com.intellij.execution.*;
-import com.intellij.execution.configurations.*;
+import com.intellij.execution.configurations.ConfigurationPerRunnerSettings;
+import com.intellij.execution.configurations.RunProfile;
+import com.intellij.execution.configurations.RunProfileState;
+import com.intellij.execution.configurations.RunnerSettings;
 import com.intellij.execution.target.*;
-import com.intellij.execution.target.local.LocalTargetEnvironmentFactory;
 import com.intellij.execution.ui.RunContentDescriptor;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.actionSystem.DataKey;
-import com.intellij.openapi.application.Experiments;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.UserDataHolderBase;
@@ -30,7 +31,7 @@ public final class ExecutionEnvironment extends UserDataHolderBase implements Di
   @NotNull private final Executor myExecutor;
 
   @NotNull private final ExecutionTarget myTarget;
-  private TargetEnvironmentFactory myTargetEnvironmentFactory;
+  private TargetEnvironmentRequest myTargetEnvironmentRequest;
   private volatile TargetEnvironment myPrepareRemoteEnvironment;
 
   @Nullable private RunnerSettings myRunnerSettings;
@@ -44,6 +45,7 @@ public final class ExecutionEnvironment extends UserDataHolderBase implements Di
 
   @Nullable
   private ProgramRunner.Callback callback;
+  private boolean isHeadless = false;
 
   @TestOnly
   public ExecutionEnvironment() {
@@ -95,31 +97,21 @@ public final class ExecutionEnvironment extends UserDataHolderBase implements Di
     this.callback = callback;
   }
 
-  public @NotNull TargetEnvironmentFactory getTargetEnvironmentFactory() {
-    if (myTargetEnvironmentFactory != null) {
-      return myTargetEnvironmentFactory;
+  public @NotNull TargetEnvironmentRequest getTargetEnvironmentRequest() {
+    if (myTargetEnvironmentRequest != null) {
+      return myTargetEnvironmentRequest;
     }
-    return myTargetEnvironmentFactory = createTargetEnvironmentFactory();
+    return myTargetEnvironmentRequest = createTargetEnvironmentRequest();
   }
 
   @NotNull
-  private TargetEnvironmentFactory createTargetEnvironmentFactory() {
-    if (myRunProfile instanceof TargetEnvironmentAwareRunProfile &&
-        Experiments.getInstance().isFeatureEnabled("run.targets")) {
-      String targetName = ((TargetEnvironmentAwareRunProfile)myRunProfile).getDefaultTargetName();
-      if (targetName != null) {
-        TargetEnvironmentConfiguration config = TargetEnvironmentsManager.getInstance(myProject).getTargets().findByName(targetName);
-        if (config != null) {
-          return config.createEnvironmentFactory(myProject);
-        }
-      }
-    }
-    return new LocalTargetEnvironmentFactory();
+  private TargetEnvironmentRequest createTargetEnvironmentRequest() {
+    return TargetEnvironmentConfigurations.createEnvironmentRequest(myRunProfile, myProject);
   }
 
   @ApiStatus.Experimental
   public @NotNull TargetEnvironment getPreparedTargetEnvironment(@NotNull RunProfileState runProfileState,
-                                                                 TargetEnvironmentAwareRunProfileState.@NotNull TargetProgressIndicator targetProgressIndicator)
+                                                                 @NotNull TargetProgressIndicator targetProgressIndicator)
     throws ExecutionException {
     if (myPrepareRemoteEnvironment != null) {
       // In a correct implementation that uses the new API this condition is always true.
@@ -131,22 +123,22 @@ public final class ExecutionEnvironment extends UserDataHolderBase implements Di
 
   @ApiStatus.Experimental
   public @NotNull TargetEnvironment prepareTargetEnvironment(@NotNull RunProfileState runProfileState,
-                                                             TargetEnvironmentAwareRunProfileState.@NotNull TargetProgressIndicator targetProgressIndicator)
+                                                             @NotNull TargetProgressIndicator targetProgressIndicator)
     throws ExecutionException {
-    TargetEnvironmentFactory factory = null;
+    TargetEnvironmentRequest request = null;
     if (runProfileState instanceof TargetEnvironmentAwareRunProfileState &&
-        myRunProfile instanceof TargetEnvironmentAwareRunProfile && ((TargetEnvironmentAwareRunProfile) myRunProfile).getDefaultTargetName() == null) {
-      factory = ((TargetEnvironmentAwareRunProfileState) runProfileState).createCustomTargetEnvironmentFactory();
+        myRunProfile instanceof TargetEnvironmentAwareRunProfile &&
+        TargetEnvironmentConfigurations.getEffectiveTargetName((TargetEnvironmentAwareRunProfile)myRunProfile, myProject) == null) {
+      request = ((TargetEnvironmentAwareRunProfileState)runProfileState).createCustomTargetEnvironmentRequest();
     }
-    if (factory == null) {
-      factory = getTargetEnvironmentFactory();
+    if (request == null) {
+      request = getTargetEnvironmentRequest();
     }
-    TargetEnvironmentRequest request = factory.createRequest();
     if (runProfileState instanceof TargetEnvironmentAwareRunProfileState) {
       ((TargetEnvironmentAwareRunProfileState)runProfileState)
-        .prepareTargetEnvironmentRequest(request, factory.getTargetConfiguration(), targetProgressIndicator);
+        .prepareTargetEnvironmentRequest(request, targetProgressIndicator);
     }
-    myPrepareRemoteEnvironment = factory.prepareRemoteEnvironment(request, targetProgressIndicator);
+    myPrepareRemoteEnvironment = request.prepareEnvironment(targetProgressIndicator);
     if (runProfileState instanceof TargetEnvironmentAwareRunProfileState) {
       ((TargetEnvironmentAwareRunProfileState)runProfileState)
         .handleCreatedTargetEnvironment(myPrepareRemoteEnvironment, targetProgressIndicator);
@@ -255,6 +247,16 @@ public final class ExecutionEnvironment extends UserDataHolderBase implements Di
     return myRunProfile.getName();
   }
 
+  @ApiStatus.Experimental
+  public boolean isHeadless() {
+    return isHeadless;
+  }
+
+  @ApiStatus.Experimental
+  public void setHeadless() {
+    isHeadless = true;
+  }
+
   void setDataContext(@NotNull DataContext dataContext) {
     myDataContext = CachingDataContext.cacheIfNeeded(dataContext);
   }
@@ -280,8 +282,9 @@ public final class ExecutionEnvironment extends UserDataHolderBase implements Di
 
     @NotNull
     static CachingDataContext cacheIfNeeded(@NotNull DataContext context) {
-      if (context instanceof CachingDataContext)
+      if (context instanceof CachingDataContext) {
         return (CachingDataContext)context;
+      }
       return new CachingDataContext(context);
     }
 
@@ -293,7 +296,7 @@ public final class ExecutionEnvironment extends UserDataHolderBase implements Di
 
     @Override
     public Object getData(@NotNull @NonNls String dataId) {
-        return values.get(dataId);
+      return values.get(dataId);
     }
   }
 

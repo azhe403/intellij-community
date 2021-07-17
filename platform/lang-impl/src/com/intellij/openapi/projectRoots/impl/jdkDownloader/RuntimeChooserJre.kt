@@ -1,4 +1,4 @@
-// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.projectRoots.impl.jdkDownloader
 
 import com.intellij.ReviseWhenPortedToJDK
@@ -68,8 +68,12 @@ object RuntimeChooserJreValidator {
                   ?: return callback.onError(
                     LangBundle.message("dialog.message.choose.ide.runtime.set.unknown.error", LangBundle.message("dialog.message.choose.ide.runtime.no.file.part")))
 
-    if (SystemInfo.isMac && homeDir.endsWith("Contents/Home")) {
+    if (SystemInfo.isMac && homeDir.toString().endsWith("/Contents/Home")) {
       return testNewJdkUnderProgress(allowRunProcesses, { homeDir.parent?.parent?.toString() }, callback)
+    }
+
+    if (SystemInfo.isMac && homeDir.fileName.toString() == "Contents" && (homeDir / "Home").isDirectory()) {
+      return testNewJdkUnderProgress(allowRunProcesses, { homeDir.parent?.toString() }, callback)
     }
 
     if (SystemInfo.isMac && !(homeDir / "Contents" / "Home").isDirectory()) {
@@ -125,7 +129,7 @@ object RuntimeChooserJreValidator {
       }
     }
 
-    return callback.onSdkResolved(info.displayName, jdkVersion, homeDir)
+    return callback.onSdkResolved(info.variant.displayName, jdkVersion, homeDir)
   }
 }
 

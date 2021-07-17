@@ -1,10 +1,10 @@
-// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 @file:JvmName("PluginsAdvertiser")
 
 package com.intellij.openapi.updateSettings.impl.pluginsAdvertisement
 
-import com.intellij.ide.plugins.IdeaPluginDescriptor
 import com.intellij.ide.plugins.PluginManagerCore
+import com.intellij.ide.plugins.PluginNode
 import com.intellij.ide.plugins.RepositoryHelper
 import com.intellij.ide.plugins.advertiser.PluginData
 import com.intellij.ide.util.PropertiesComponent
@@ -17,6 +17,7 @@ import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.project.Project
 import com.intellij.util.PlatformUtils.isIdeaUltimate
+import org.jetbrains.annotations.ApiStatus
 import java.io.IOException
 
 private const val IGNORE_ULTIMATE_EDITION = "ignoreUltimateEdition"
@@ -27,11 +28,12 @@ val LOG = Logger.getInstance("#PluginsAdvertiser")
 private val propertiesComponent
   get() = PropertiesComponent.getInstance()
 
-var isIgnoreUltimate: Boolean
+var isIgnoreIdeSuggestion: Boolean
   get() = propertiesComponent.isTrueValue(IGNORE_ULTIMATE_EDITION)
   set(value) = propertiesComponent.setValue(IGNORE_ULTIMATE_EDITION, value)
 
 @JvmField
+@ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
 @Deprecated("Use `notificationGroup` property")
 val NOTIFICATION_GROUP = notificationGroup
 
@@ -39,7 +41,7 @@ val notificationGroup: NotificationGroup
   get() = NotificationGroupManager.getInstance().getNotificationGroup("Plugins Suggestion")
 
 @Suppress("DeprecatedCallableAddReplaceWith")
-@Deprecated("Use `installAndEnable(Set, Runnable)`")
+@Deprecated("Use `installAndEnable(Project, Set, Boolean, Runnable)`")
 fun installAndEnablePlugins(
   pluginIds: Set<String>,
   onSuccess: Runnable,
@@ -50,6 +52,7 @@ fun installAndEnablePlugins(
   )
 }
 
+@Deprecated("Use `installAndEnable(Project, Set, Boolean, Runnable)`")
 fun installAndEnable(
   pluginIds: Set<PluginId>,
   onSuccess: Runnable,
@@ -79,7 +82,7 @@ internal fun getBundledPluginToInstall(plugins: Collection<PluginData>): List<St
  * Loads list of plugins, compatible with a current build, from all configured repositories
  */
 @JvmOverloads
-internal fun loadPluginsFromCustomRepositories(indicator: ProgressIndicator? = null): List<IdeaPluginDescriptor> {
+internal fun loadPluginsFromCustomRepositories(indicator: ProgressIndicator? = null): List<PluginNode> {
   return RepositoryHelper
     .getPluginHosts()
     .filterNot {
@@ -87,12 +90,12 @@ internal fun loadPluginsFromCustomRepositories(indicator: ProgressIndicator? = n
       && ApplicationInfoEx.getInstanceEx().usesJetBrainsPluginRepository()
     }.flatMap {
       try {
-        RepositoryHelper.loadPlugins(it, indicator)
+        RepositoryHelper.loadPlugins(it, null, indicator)
       }
       catch (e: IOException) {
         LOG.info("Couldn't load plugins from $it: $e")
         LOG.debug(e)
-        emptyList<IdeaPluginDescriptor>()
+        emptyList<PluginNode>()
       }
     }.distinctBy { it.pluginId }
 }

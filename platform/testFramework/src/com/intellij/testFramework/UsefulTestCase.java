@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.testFramework;
 
 import com.intellij.codeInsight.CodeInsightSettings;
@@ -8,7 +8,7 @@ import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.PathManager;
-import com.intellij.openapi.application.impl.ApplicationInfoImpl;
+import com.intellij.openapi.application.ex.ApplicationManagerEx;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.fileTypes.FileTypeManager;
 import com.intellij.openapi.project.Project;
@@ -16,6 +16,7 @@ import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.IconLoader;
 import com.intellij.openapi.util.JDOMUtil;
 import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.openapi.util.io.FileUtilRt;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VfsUtilCore;
@@ -29,6 +30,8 @@ import com.intellij.psi.impl.source.PostprocessReformattingAspect;
 import com.intellij.rt.execution.junit.FileComparisonFailure;
 import com.intellij.testFramework.exceptionCases.AbstractExceptionCase;
 import com.intellij.testFramework.fixtures.IdeaTestExecutionPolicy;
+import com.intellij.ui.CoreIconManager;
+import com.intellij.ui.IconManager;
 import com.intellij.util.*;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.PeekableIterator;
@@ -111,10 +114,10 @@ public abstract class UsefulTestCase extends TestCase {
   public static final String TEMP_DIR_MARKER = "unitTest_";
   public static final boolean OVERWRITE_TESTDATA = Boolean.getBoolean("idea.tests.overwrite.data");
 
-  private static final String ORIGINAL_TEMP_DIR = FileUtil.getTempDirectory();
+  private static final String ORIGINAL_TEMP_DIR = FileUtilRt.getTempDirectory();
 
-  private static final Object2LongMap<String> TOTAL_SETUP_COST_MILLIS=new Object2LongOpenHashMap<>();
-  private static final Object2LongMap<String> TOTAL_TEARDOWN_COST_MILLIS=new Object2LongOpenHashMap<>();
+  private static final Object2LongMap<String> TOTAL_SETUP_COST_MILLIS = new Object2LongOpenHashMap<>();
+  private static final Object2LongMap<String> TOTAL_TEARDOWN_COST_MILLIS = new Object2LongOpenHashMap<>();
 
   protected static final Logger LOG = Logger.getInstance(UsefulTestCase.class);
 
@@ -226,7 +229,7 @@ public abstract class UsefulTestCase extends TestCase {
     setupTempDir();
 
     boolean isStressTest = isStressTest();
-    ApplicationInfoImpl.setInStressTest(isStressTest);
+    ApplicationManagerEx.setInStressTest(isStressTest);
     if (isPerformanceTest()) {
       Timings.getStatistics();
     }
@@ -236,8 +239,15 @@ public abstract class UsefulTestCase extends TestCase {
 
     if (isIconRequired()) {
       // ensure that IconLoader will use dummy empty icon
-      IconLoader.deactivate();
-      //IconManager.activate();
+      try {
+        IconManager.activate(new CoreIconManager());
+      }
+      catch (Exception e) {
+        throw e;
+      }
+      catch (Throwable e) {
+        throw new RuntimeException(e);
+      }
     }
   }
 
@@ -293,6 +303,12 @@ public abstract class UsefulTestCase extends TestCase {
     // don't use method references here to make stack trace reading easier
     //noinspection Convert2MethodRef
     new RunAll(
+      () -> {
+        if (isIconRequired()) {
+          IconManager.deactivate();
+          IconLoader.clearCacheInTests();
+        }
+      },
       () -> disposeRootDisposable(),
       () -> cleanupSwingDataStructures(),
       () -> cleanupDeleteOnExitHookList(),
@@ -466,7 +482,7 @@ public abstract class UsefulTestCase extends TestCase {
     }
   }
 
-  protected void invokeSetUp() throws Exception {
+  protected final void invokeSetUp() throws Exception {
     long setupStart = System.nanoTime();
     setUp();
     long setupCost = (System.nanoTime() - setupStart) / 1000000;
@@ -683,8 +699,8 @@ public abstract class UsefulTestCase extends TestCase {
    * Checks {@code actual} contains same elements (in {@link #equals(Object)} meaning) as {@code expected} irrespective of their order
    */
   public static <T> void assertSameElements(@NotNull String message, @NotNull Collection<? extends T> actual, @NotNull Collection<? extends T> expected) {
-    if (actual.size() != expected.size() || !new HashSet<>(expected).equals(new HashSet<T>(actual))) {
-      Assert.assertEquals(message, new HashSet<>(expected), new HashSet<T>(actual));
+    if (actual.size() != expected.size() || !new LinkedHashSet<>(expected).equals(new LinkedHashSet<T>(actual))) {
+      Assert.assertEquals(message, new LinkedHashSet<>(expected), new LinkedHashSet<T>(actual));
     }
   }
 
@@ -1051,6 +1067,7 @@ public abstract class UsefulTestCase extends TestCase {
    * @param exceptionCase Block annotated with some exception type
    * @deprecated Use {@link #assertThrows(Class, ThrowableRunnable)} instead
    */
+  @ApiStatus.ScheduledForRemoval(inVersion = "2022.1")
   @Deprecated
   protected void assertException(@NotNull AbstractExceptionCase<?> exceptionCase) {
     assertThrows(exceptionCase.getExpectedExceptionClass(), null, ()-> exceptionCase.tryClosure());
@@ -1064,6 +1081,7 @@ public abstract class UsefulTestCase extends TestCase {
    * @param expectedErrorMsg expected error message
    * @deprecated Use {@link #assertThrows(Class, String, ThrowableRunnable)} instead
    */
+  @ApiStatus.ScheduledForRemoval(inVersion = "2022.1")
   @Deprecated
   protected void assertException(@NotNull AbstractExceptionCase<?> exceptionCase, @Nullable String expectedErrorMsg) {
     assertThrows(exceptionCase.getExpectedExceptionClass(), expectedErrorMsg, ()->exceptionCase.tryClosure());
@@ -1096,7 +1114,7 @@ public abstract class UsefulTestCase extends TestCase {
     }
     catch (Throwable e) {
       Throwable cause = e;
-      while (cause instanceof LoggedErrorProcessor.TestLoggerAssertionError && cause.getCause() != null) {
+      while (cause instanceof TestLogger.TestLoggerAssertionError && cause.getCause() != null) {
         cause = cause.getCause();
       }
 
@@ -1122,6 +1140,7 @@ public abstract class UsefulTestCase extends TestCase {
    * @param exceptionCase Block annotated with some exception type
    * @deprecated Use {@link #assertNoException(Class, ThrowableRunnable)} instead
    */
+  @ApiStatus.ScheduledForRemoval(inVersion = "2022.1")
   @Deprecated
   protected <T extends Throwable> void assertNoException(@NotNull AbstractExceptionCase<T> exceptionCase) throws T {
     try {
@@ -1138,7 +1157,7 @@ public abstract class UsefulTestCase extends TestCase {
     }
     catch (Throwable e) {
       Throwable cause = e;
-      while (cause instanceof LoggedErrorProcessor.TestLoggerAssertionError && cause.getCause() != null) {
+      while (cause instanceof TestLogger.TestLoggerAssertionError && cause.getCause() != null) {
         cause = cause.getCause();
       }
 

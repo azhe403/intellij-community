@@ -59,7 +59,7 @@ class KeyHashLog<Key> implements Closeable {
   }
 
   @NotNull
-  private static AppendableStorageBackedByResizableMappedFile<int[]> openMapping(@NotNull Path dataFile, int size) {
+  private static AppendableStorageBackedByResizableMappedFile<int[]> openMapping(@NotNull Path dataFile, int size) throws IOException {
     return new AppendableStorageBackedByResizableMappedFile<>(dataFile,
                                                               size,
                                                               null,
@@ -80,7 +80,7 @@ class KeyHashLog<Key> implements Closeable {
   IntSet getSuitableKeyHashes(@NotNull IdFilter filter, @NotNull Project project) throws StorageException {
     IdFilter.FilterScopeType filteringScopeType = filter.getFilteringScopeType();
     if (filteringScopeType == IdFilter.FilterScopeType.OTHER) {
-      return null;
+      filteringScopeType = IdFilter.FilterScopeType.PROJECT_AND_LIBRARIES;
     }
     IntSet hashMaskSet = null;
     long l = System.currentTimeMillis();
@@ -365,6 +365,7 @@ class KeyHashLog<Key> implements Closeable {
       return;
     }
     try {
+      Files.createDirectories(marker.getParent());
       Files.createFile(marker);
     }
     catch (FileAlreadyExistsException ignored) { }

@@ -7,8 +7,13 @@ import com.intellij.execution.target.HostPort
 import com.intellij.execution.target.TargetEnvironment
 import com.intellij.execution.target.TargetEnvironmentRequest
 import com.intellij.execution.target.TargetPlatform
+import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.util.io.FileUtil
+import java.io.File
+import java.io.IOException
+import java.nio.file.Path
 import java.util.function.Function
+import kotlin.io.path.name
 
 /**
  * The function that is expected to be resolved with provided
@@ -48,15 +53,20 @@ fun TargetEnvironmentRequest.getTargetEnvironmentValueForLocalPath(localPath: St
 fun TargetEnvironmentRequest.getUploadRootForLocalPath(localPath: String): Pair<TargetEnvironment.UploadRoot, String>? {
   val targetFileSeparator = targetPlatform.platform.fileSeparator
   return uploadVolumes.mapNotNull { uploadRoot ->
-    getRelativePathIfAncestor(ancestor = uploadRoot.localRootPath.toString(),
-                              file = localPath,
-                              targetFileSeparator = targetFileSeparator)?.let { relativePath -> uploadRoot to relativePath }
+    getRelativePathIfAncestor(ancestor = uploadRoot.localRootPath.toString(), file = localPath)?.let { relativePath ->
+      uploadRoot to if (File.separatorChar != targetFileSeparator) {
+        relativePath.replace(File.separatorChar, targetFileSeparator)
+      }
+      else {
+        relativePath
+      }
+    }
   }.firstOrNull()
 }
 
-private fun getRelativePathIfAncestor(ancestor: String, file: String, targetFileSeparator: Char): String? =
+private fun getRelativePathIfAncestor(ancestor: String, file: String): String? =
   if (FileUtil.isAncestor(ancestor, file, false)) {
-    FileUtil.getRelativePath(ancestor, file, targetFileSeparator)
+    FileUtil.getRelativePath(ancestor, file, File.separatorChar)
   }
   else {
     null
@@ -92,9 +102,19 @@ fun TargetEnvironment.DownloadRoot.getTargetDownloadPath(): TargetEnvironmentFun
 fun TargetEnvironment.LocalPortBinding.getTargetEnvironmentValue(): TargetEnvironmentFunction<HostPort> =
   TargetEnvironmentFunction { targetEnvironment ->
     val localPortBinding = this@getTargetEnvironmentValue
-    return@TargetEnvironmentFunction targetEnvironment.localPortBindings[localPortBinding]
-                                     ?: throw IllegalStateException("Local port binding \"$localPortBinding\" cannot be found")
+    val resolvedPortBinding = (targetEnvironment.localPortBindings[localPortBinding]
+                               ?: throw IllegalStateException("Local port binding \"$localPortBinding\" cannot be found"))
+    return@TargetEnvironmentFunction resolvedPortBinding.targetEndpoint
   }
+
+@Throws(IOException::class)
+fun TargetEnvironment.downloadFromTarget(localPath: Path, progressIndicator: ProgressIndicator) {
+  val localFileDir = localPath.parent
+  val downloadVolumes = downloadVolumes.values
+  val downloadVolume = downloadVolumes.find { it.localRoot == localFileDir }
+                       ?: error("Volume with local root $localFileDir not found")
+  downloadVolume.download(localPath.name, progressIndicator)
+}
 
 private class JoinedStringTargetEnvironmentFunction<T>(private val iterable: Iterable<TargetEnvironmentFunction<T>>,
                                                        private val separator: CharSequence) : TargetEnvironmentFunction<String> {

@@ -1,12 +1,13 @@
 // Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.impl;
 
-import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.DataKey;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.extensions.ExtensionPointListener;
 import com.intellij.openapi.extensions.ExtensionPointName;
 import com.intellij.openapi.extensions.PluginDescriptor;
+import com.intellij.openapi.util.Conditions;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.FactoryMap;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -29,14 +30,16 @@ public abstract class DataValidators {
 
   interface Registry {
     <T> void register(@NotNull DataKey<T> key, @NotNull Validator<? super T> validator);
-    <T> void registerInjected(@NotNull DataKey<T> key, @NotNull Validator<? super T> validator);
   }
 
   public static <T> @NotNull Validator<T[]> arrayValidator(@NotNull Validator<? super T> validator) {
     return (data, dataId, source) -> {
       for (T element : data) {
         if (element == null) {
-          LOG.error("Array with null provided by " + source.getClass().getName() + ".getData(\"" + dataId + "\")");
+          T notNull = ContainerUtil.find(data, Conditions.notNull());
+          LOG.error("Array with null provided by " + source.getClass().getName() + ".getData(\"" + dataId + "\")" +
+                    ": " + data.getClass().getComponentType().getName() + "[" + data.length + "] " +
+                    "{" + (notNull == null ? null : notNull.getClass().getName()) + (data.length > 1 ? ", ..." : "") + "}");
           return false;
         }
         if (!validator.checkValid(element, dataId, source)) {
@@ -47,7 +50,11 @@ public abstract class DataValidators {
     };
   }
 
-  static boolean isDataValid(@NotNull Object data, @NotNull String dataId, @NotNull Object source) {
+  public static @Nullable Object validOrNull(@NotNull Object data, @NotNull String dataId, @NotNull Object source) {
+    return isDataValid(data, dataId, source) ? data : null;
+  }
+
+  private static boolean isDataValid(@NotNull Object data, @NotNull String dataId, @NotNull Object source) {
     //noinspection unchecked
     Validator<Object>[] validators = (Validator<Object>[])getValidators(dataId);
     if (validators == null) return true;
@@ -92,12 +99,6 @@ public abstract class DataValidators {
       public <T> void register(@NotNull DataKey<T> key,
                                @NotNull Validator<? super T> validator) {
         map.get(key.getName()).add(validator);
-      }
-
-      @Override
-      public <T> void registerInjected(@NotNull DataKey<T> key,
-                                       @NotNull Validator<? super T> validator) {
-        map.get(AnActionEvent.injectedId(key.getName())).add(validator);
       }
     };
     for (DataValidators validators : EP_NAME.getExtensionList()) {

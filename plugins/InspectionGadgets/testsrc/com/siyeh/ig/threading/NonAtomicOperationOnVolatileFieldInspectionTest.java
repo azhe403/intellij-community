@@ -27,7 +27,7 @@ public class NonAtomicOperationOnVolatileFieldInspectionTest extends LightJavaIn
     doTest("class X {" +
            "  private volatile int v = 1;" +
            "  void m() {" +
-           "    (/*Non-atomic operation on 'volatile' field 'v'*/v/**/)++;" +
+           "    (/*Non-atomic operation on volatile field 'v'*/v/**/)++;" +
            "  }" +
            "}");
   }
@@ -36,7 +36,7 @@ public class NonAtomicOperationOnVolatileFieldInspectionTest extends LightJavaIn
     doTest("class X {" +
            "  private volatile int v = 1;" +
            "  void m() {" +
-           "    ++(/*Non-atomic operation on 'volatile' field 'v'*/v/**/);" +
+           "    ++(/*Non-atomic operation on volatile field 'v'*/v/**/);" +
            "  }" +
            "}");
   }
@@ -45,7 +45,7 @@ public class NonAtomicOperationOnVolatileFieldInspectionTest extends LightJavaIn
     doTest("class X {" +
            "  private volatile int v = 1;" +
            "  void m() {" +
-           "    (/*Non-atomic operation on 'volatile' field 'v'*/v/**/) = 3 + v;" +
+           "    (/*Non-atomic operation on volatile field 'v'*/v/**/) = 3 + v;" +
            "  }" +
            "}");
   }
@@ -54,19 +54,20 @@ public class NonAtomicOperationOnVolatileFieldInspectionTest extends LightJavaIn
     doTest("class X {" +
            "  private volatile int v = 1;" +
            "  void m() {" +
-           "    (this)./*Non-atomic operation on 'volatile' field 'v'*/v/**/ = 2 * (this).v;" +
+           "    (this)./*Non-atomic operation on volatile field 'v'*/v/**/ = 2 * (this).v;" +
            "  }" +
            "}");
   }
 
   public void testQualified2() {
+    //noinspection Convert2Lambda
     doTest("class Segment {" +
            "  private volatile int count = 0;" +
            "  public void x() {" +
            "      Runnable r = new Runnable() {" +
            "        @Override" +
            "        public void run() {" +
-           "          (Segment.this./*Non-atomic operation on 'volatile' field 'count'*/count/**/)++;" +
+           "          (Segment.this./*Non-atomic operation on volatile field 'count'*/count/**/)++;" +
            "        }" +
            "      };" +
            "  }" +
@@ -77,7 +78,7 @@ public class NonAtomicOperationOnVolatileFieldInspectionTest extends LightJavaIn
     doTest("class X {" +
            "  private volatile int v = 1;" +
            "  void m() {" +
-           "    /*Non-atomic operation on 'volatile' field 'v'*/v/**/ = 2 * this.v;" +
+           "    /*Non-atomic operation on volatile field 'v'*/v/**/ = 2 * this.v;" +
            "  }" +
            "}");
   }

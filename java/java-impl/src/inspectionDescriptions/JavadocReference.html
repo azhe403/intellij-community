@@ -1,19 +1,20 @@
 <html>
 <body>
-This inspection points out unresolved references inside javadoc.
-<p>In the example there is no parameter <code>someParam</code> so it is highlighted:</p>
-<pre>
+Reports unresolved references inside Javadoc comments.
+<p>In the following example, the <code>someParam</code> parameter is missing, so it will be highlighted:</p>
+<pre><code>
 class A {
-  /**
-  *   @param someParam description
-  **/
-  void foo() {}
+    /**
+     * @param someParam description
+     **/
+    void foo() {
+    }
 }
-</pre>
+</code></pre>
 <!-- tooltip end -->
 <p>
-  Use the checkbox to ignore inaccessible symbols in the place of javadoc.
-</p>
+  Disable the <b>Report inaccessible symbols</b> option to ignore the tags that reference missing method parameters,
+  classes, fields and methods.</p>
 
 </body>
 </html>

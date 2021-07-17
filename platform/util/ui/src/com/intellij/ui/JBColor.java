@@ -62,9 +62,29 @@ public class JBColor extends Color {
   }
 
   @NotNull
+  public static JBColor namedColor(@NonNls @NotNull final String propertyName) {
+    return namedColor(propertyName, fallbackColor(propertyName));
+  }
+
+  @NotNull
   public static JBColor namedColor(@NonNls @NotNull final String propertyName, @NotNull final Color defaultColor) {
     return new JBColor(() -> {
-      Color color = notNull(UIManager.getColor(propertyName), () -> notNull(findPatternMatch(propertyName), defaultColor));
+      Color color = UIManager.getColor(propertyName);
+      if (color != null) return color;
+      // *.background and others are handled by defaultColor. findPatternMatch is relevant for themes only.
+      if (!UIManager.getDefaults().containsKey("Theme.name")) {
+        return defaultColor;
+      }
+      Color patternMatch = findPatternMatch(propertyName);
+      return patternMatch == null ? defaultColor : patternMatch;
+    });
+  }
+
+  @NotNull
+  private static JBColor fallbackColor(@NonNls @NotNull final String propertyName) {
+    return new JBColor(() -> {
+      Color color = notNull(UIManager.getColor(propertyName),
+                            () -> notNull(findPatternMatch(propertyName), Gray.TRANSPARENT));
       if (UIManager.get(propertyName) == null) {
         if (Registry.is("ide.save.missing.jb.colors", false)) {
           return _saveAndReturnColor(propertyName, color);

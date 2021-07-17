@@ -18,7 +18,7 @@
     <exec executable="${gradle.executable}" dir="${project.home}/build/dependencies" failonerror="true">
       <env key="JAVA_HOME" value="${java.home}"/>
       <arg value="--no-daemon"/>
-      <arg value="setupKotlinPlugin"/>
+      <arg value="setupKotlinCompiler"/>
     </exec>
     <propertyset id="intellij.build.properties">
       <propertyref name="build.number"/>
@@ -32,7 +32,7 @@
     <attribute name="target" default="default"/>
     <sequential>
       <java failonerror="true" jar="${project.home}/lib/ant/lib/ant-launcher.jar" fork="true">
-        <jvmarg line="-Xmx1500m"/>
+        <jvmarg line="-Xmx2000m"/>
         <sysproperty key="jna.nosys" value="true" />
         <sysproperty key="java.awt.headless" value="true"/>
         <sysproperty key="gant.script" value="@{script}"/>

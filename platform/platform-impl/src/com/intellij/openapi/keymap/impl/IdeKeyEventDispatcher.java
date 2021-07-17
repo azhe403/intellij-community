@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.keymap.impl;
 
 import com.intellij.diagnostic.EventWatcher;
@@ -7,17 +7,14 @@ import com.intellij.ide.DataManager;
 import com.intellij.ide.IdeBundle;
 import com.intellij.ide.IdeEventQueue;
 import com.intellij.ide.KeyboardAwareFocusOwner;
-import com.intellij.ide.impl.DataManagerImpl;
-import com.intellij.openapi.Disposable;
 import com.intellij.openapi.MnemonicHelper;
 import com.intellij.openapi.actionSystem.*;
-import com.intellij.openapi.actionSystem.ex.ActionManagerEx;
 import com.intellij.openapi.actionSystem.ex.ActionUtil;
 import com.intellij.openapi.actionSystem.impl.ActionMenu;
+import com.intellij.openapi.actionSystem.impl.EdtDataContext;
 import com.intellij.openapi.actionSystem.impl.PresentationFactory;
 import com.intellij.openapi.actionSystem.impl.Utils;
 import com.intellij.openapi.application.*;
-import com.intellij.openapi.application.impl.LaterInvocator;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.keymap.KeyMapBundle;
 import com.intellij.openapi.keymap.Keymap;
@@ -29,21 +26,16 @@ import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.popup.JBPopup;
-import com.intellij.openapi.ui.popup.JBPopupFactory;
-import com.intellij.openapi.ui.popup.ListPopup;
 import com.intellij.openapi.util.*;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.Strings;
 import com.intellij.openapi.wm.StatusBar;
-import com.intellij.openapi.wm.WindowManager;
-import com.intellij.openapi.wm.ex.StatusBarEx;
 import com.intellij.openapi.wm.impl.FloatingDecorator;
 import com.intellij.openapi.wm.impl.IdeFrameImpl;
 import com.intellij.openapi.wm.impl.IdeGlassPaneEx;
 import com.intellij.ui.ComponentUtil;
 import com.intellij.ui.ComponentWithMnemonics;
 import com.intellij.ui.KeyStrokeAdapter;
-import com.intellij.ui.awt.RelativePoint;
 import com.intellij.ui.speedSearch.SpeedSearchSupply;
 import com.intellij.util.Alarm;
 import com.intellij.util.ArrayUtilRt;
@@ -52,10 +44,7 @@ import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.text.KeyboardLayoutUtil;
 import com.intellij.util.ui.MacUIUtil;
 import com.intellij.util.ui.UIUtil;
-import org.jetbrains.annotations.Nls;
-import org.jetbrains.annotations.NonNls;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.*;
 
 import javax.swing.*;
 import javax.swing.plaf.basic.ComboPopup;
@@ -64,7 +53,6 @@ import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
-import java.awt.event.MouseEvent;
 import java.awt.im.InputContext;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -79,7 +67,7 @@ import java.util.function.Function;
  * @author Anton Katilin
  * @author Vladimir Kondratyev
  */
-public final class IdeKeyEventDispatcher implements Disposable {
+public final class IdeKeyEventDispatcher {
   private static final Logger LOG = Logger.getInstance(IdeKeyEventDispatcher.class);
 
   private KeyStroke myFirstKeyStroke;
@@ -93,7 +81,6 @@ public final class IdeKeyEventDispatcher implements Disposable {
   private KeyState myState = KeyState.STATE_INIT;
 
   private final PresentationFactory myPresentationFactory = new PresentationFactory();
-  private boolean myDisposed;
   private boolean myLeftCtrlPressed;
   private boolean myRightAltPressed;
 
@@ -111,15 +98,8 @@ public final class IdeKeyEventDispatcher implements Disposable {
     }
   };
 
-
-  public IdeKeyEventDispatcher(@Nullable IdeEventQueue queue){
+  public IdeKeyEventDispatcher(@Nullable IdeEventQueue queue) {
     myQueue = queue;
-
-    // Application is null on early start when e.g. license dialog is shown
-    Application app = ApplicationManager.getApplication();
-    if (app != null) {
-      Disposer.register(app, this);
-    }
   }
 
   public boolean isWaitingForSecondKeyStroke() {
@@ -131,10 +111,6 @@ public final class IdeKeyEventDispatcher implements Disposable {
    * {@code IdeKeyEventDispatcher} and there is no need for any other processing of the event.
    */
   public boolean dispatchKeyEvent(KeyEvent e) {
-    if (myDisposed) {
-      return false;
-    }
-
     if (e.getID() == KeyEvent.KEY_PRESSED) {
       storeAsciiForChar(e);
     }
@@ -159,8 +135,11 @@ public final class IdeKeyEventDispatcher implements Disposable {
       myIgnoreNextKeyTypedEvent = false;
     }
 
-    if (isSpeedSearchEditing(e)) {
-      return false;
+    if (e.getKeyCode() == KeyEvent.VK_BACK_SPACE && focusOwner instanceof JComponent) {
+      SpeedSearchSupply supply = SpeedSearchSupply.getSupply((JComponent)focusOwner);
+      if (supply != null && supply.isPopupActive()) {
+        return false;
+      }
     }
 
     // http://www.jetbrains.net/jira/browse/IDEADEV-12372
@@ -190,12 +169,15 @@ public final class IdeKeyEventDispatcher implements Disposable {
       return false;
     }
 
-    if (id == KeyEvent.KEY_PRESSED &&
-        focusOwner instanceof JTextComponent &&
-        ((JTextComponent)focusOwner).isEditable() &&
-        e.getKeyChar() != KeyEvent.CHAR_UNDEFINED &&
-        e.getKeyCode() != KeyEvent.VK_ESCAPE) {
-      MacUIUtil.hideCursor();
+    if (getState() == KeyState.STATE_INIT && e.getKeyChar() != KeyEvent.CHAR_UNDEFINED &&
+        focusOwner instanceof JTextComponent && ((JTextComponent)focusOwner).isEditable()) {
+      if (id == KeyEvent.KEY_PRESSED && e.getKeyCode() != KeyEvent.VK_ESCAPE) {
+        MacUIUtil.hideCursor();
+      }
+      if (e.getModifiersEx() == 0 && Character.isLetterOrDigit(e.getKeyChar()) &&
+          !Boolean.TRUE.equals(((JTextComponent)focusOwner).getClientProperty(ActionUtil.ALLOW_PlAIN_LETTER_SHORTCUTS))) {
+        return false;
+      }
     }
 
     MenuSelectionManager menuSelectionManager=MenuSelectionManager.defaultManager();
@@ -260,18 +242,6 @@ public final class IdeKeyEventDispatcher implements Disposable {
     if ((mods & ~InputEvent.SHIFT_MASK & ~InputEvent.SHIFT_DOWN_MASK) != 0) return;
 
     KeyboardLayoutUtil.storeAsciiForChar(e.getKeyCode(), aChar, KeyEvent.VK_A, KeyEvent.VK_Z);
-  }
-
-  private static boolean isSpeedSearchEditing(@NotNull KeyEvent e) {
-    int keyCode = e.getKeyCode();
-    if (keyCode == KeyEvent.VK_BACK_SPACE) {
-      Component owner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
-      if (owner instanceof JComponent) {
-        SpeedSearchSupply supply = SpeedSearchSupply.getSupply((JComponent)owner);
-        return supply != null && supply.isPopupActive();
-      }
-    }
-    return false;
   }
 
   /**
@@ -399,13 +369,8 @@ public final class IdeKeyEventDispatcher implements Disposable {
       return true;
     }
 
-    // finally user had managed to enter the second keystroke, so let it be processed
-    Project project = myContext.getProject();
-    StatusBarEx statusBar = project == null ? null : (StatusBarEx)WindowManager.getInstance().getStatusBar(project);
     if (processAction(e, myActionProcessor)) {
-      if (statusBar != null) {
-        statusBar.setInfo(null);
-      }
+      StatusBar.Info.set(null, myContext.getProject());
       return true;
     }
     else {
@@ -454,7 +419,7 @@ public final class IdeKeyEventDispatcher implements Disposable {
     if (originalKeyStroke == null) {
       return false;
     }
-    KeyStroke keyStroke=getKeyStrokeWithoutMouseModifiers(originalKeyStroke);
+    KeyStroke keyStroke = getKeyStrokeWithoutMouseModifiers(originalKeyStroke);
 
     if (myKeyGestureProcessor.processInitState()) {
       return true;
@@ -486,49 +451,51 @@ public final class IdeKeyEventDispatcher implements Disposable {
   }
 
   private boolean processActionOrWaitSecondStroke(KeyStroke keyStroke) {
-    if (!myContext.isHasSecondStroke()) {
-      return processAction(myContext.getInputEvent(), myActionProcessor);
+    if (!myContext.getSecondStrokeActions().isEmpty()) {
+      myFirstKeyStroke = keyStroke;
     }
-
-    myFirstKeyStroke = keyStroke;
-    List<Pair<AnAction, KeyStroke>> secondKeyStrokes = getSecondKeystrokeActions();
-
-    Project project = myContext.getProject();
-    @NlsContexts.StatusBarText StringBuilder message = new StringBuilder();
-    message.append(KeyMapBundle.message("prefix.key.pressed.message"));
-    message.append(' ');
-    for (int i = 0; i < secondKeyStrokes.size(); i++) {
-      Pair<AnAction, KeyStroke> pair = secondKeyStrokes.get(i);
-      if (i > 0) message.append(", ");
-      message.append(pair.getFirst().getTemplatePresentation().getText());
-      message.append(" (");
-      message.append(KeymapUtil.getKeystrokeText(pair.getSecond()));
-      message.append(")");
-    }
-
-    StatusBar.Info.set(message.toString(), project);
-
-    mySecondStrokeTimeout.cancelAllRequests();
-    mySecondStrokeTimeout.addRequest(mySecondStrokeTimeoutRunnable, Registry.intValue("actionSystem.secondKeystrokeTimeout"));
-
-    setState(KeyState.STATE_WAIT_FOR_SECOND_KEYSTROKE);
-    return true;
+    return processAction(myContext.getInputEvent(), myActionProcessor);
   }
 
-  private @NotNull List<Pair<AnAction, KeyStroke>> getSecondKeystrokeActions() {
-    List<Pair<AnAction, KeyStroke>> secondKeyStrokes = new ArrayList<>();
-    for (AnAction action : myContext.getActions()) {
-      Shortcut[] shortcuts = action.getShortcutSet().getShortcuts();
-      for (Shortcut shortcut : shortcuts) {
-        if (shortcut instanceof KeyboardShortcut) {
-          KeyboardShortcut keyShortcut = (KeyboardShortcut)shortcut;
-          if (keyShortcut.getFirstKeyStroke().equals(myFirstKeyStroke)) {
-            secondKeyStrokes.add(Pair.create(action, keyShortcut.getSecondKeyStroke()));
-          }
+  private void waitSecondStroke(@NotNull AnAction chosenAction, @NotNull Presentation presentation) {
+    StatusBar.Info.set(getSecondStrokeMessage(chosenAction, presentation), myContext.getProject());
+    mySecondStrokeTimeout.cancelAllRequests();
+    mySecondStrokeTimeout.addRequest(mySecondStrokeTimeoutRunnable, Registry.intValue("actionSystem.secondKeystrokeTimeout"));
+    setState(KeyState.STATE_WAIT_FOR_SECOND_KEYSTROKE);
+  }
+
+  @NlsContexts.StatusBarText
+  private @NotNull String getSecondStrokeMessage(@NotNull AnAction chosenAction, @NotNull Presentation presentation) {
+    @NlsContexts.StatusBarText StringBuilder message = new StringBuilder();
+    message.append(KeyMapBundle.message("prefix.key.pressed.message"));
+    message.append(": ");
+    message.append(presentation.getText());
+    message.append(" (");
+    message.append(KeymapUtil.getKeystrokeText(getSecondKeystroke(chosenAction, myFirstKeyStroke)));
+    message.append(")");
+    for (AnAction action : myContext.getSecondStrokeActions()) {
+      if (action == chosenAction) continue;
+      message.append(", ");
+      message.append(action.getTemplatePresentation().getText());
+      message.append(" (");
+      message.append(KeymapUtil.getKeystrokeText(getSecondKeystroke(action, myFirstKeyStroke)));
+      message.append(")");
+    }
+    return message.toString();
+  }
+
+  private static @Nullable KeyStroke getSecondKeystroke(@NotNull AnAction action, @NotNull KeyStroke firstKeyStroke) {
+    Shortcut[] shortcuts = action.getShortcutSet().getShortcuts();
+    for (Shortcut shortcut : shortcuts) {
+      if (shortcut instanceof KeyboardShortcut) {
+        KeyboardShortcut keyShortcut = (KeyboardShortcut)shortcut;
+        if (firstKeyStroke.equals(keyShortcut.getFirstKeyStroke())) {
+          KeyStroke secondKeyStroke = keyShortcut.getSecondKeyStroke();
+          if (secondKeyStroke != null) return secondKeyStroke;
         }
       }
     }
-    return secondKeyStrokes;
+    return null;
   }
 
   public static boolean hasMnemonicInWindow(Component focusOwner, @NotNull KeyEvent event) {
@@ -585,48 +552,28 @@ public final class IdeKeyEventDispatcher implements Disposable {
     }
 
     @Override
-    public void onUpdatePassed(@NotNull InputEvent inputEvent, @NotNull AnAction action, @NotNull AnActionEvent actionEvent) {
+    public void onUpdatePassed(@NotNull InputEvent inputEvent, @NotNull AnAction action, @NotNull AnActionEvent event) {
       setState(KeyState.STATE_PROCESSED);
       setPressedWasProcessed(inputEvent.getID() == KeyEvent.KEY_PRESSED);
     }
 
     @Override
-    public void performAction(@NotNull InputEvent e, @NotNull AnAction action, @NotNull AnActionEvent actionEvent) {
-      doPerformActionImpl(e, action, actionEvent);
+    public void performAction(@NotNull InputEvent inputEvent, @NotNull AnAction action, @NotNull AnActionEvent event) {
+      try {
+        super.performAction(inputEvent, action, event);
+      }
+      finally {
+        if (Registry.is("actionSystem.fixLostTyping")) {
+          IdeEventQueue.getInstance().doWhenReady(() -> IdeEventQueue.getInstance().getKeyEventDispatcher().resetState());
+        }
+      }
     }
   };
 
-  static void doPerformActionImpl(@NotNull InputEvent e, @NotNull AnAction action, @NotNull AnActionEvent actionEvent) {
-    e.consume();
-
-    DataContext ctx = actionEvent.getDataContext();
-    if (action instanceof ActionGroup && !((ActionGroup)action).canBePerformed(ctx)) {
-      ActionGroup group = (ActionGroup)action;
-      String groupId = ActionManager.getInstance().getId(action);
-      ListPopup popup = JBPopupFactory.getInstance().createActionGroupPopup(
-        group.getTemplatePresentation().getText(), group, ctx,
-        JBPopupFactory.ActionSelectionAid.SPEEDSEARCH,
-        false, null, -1, null, ActionPlaces.getActionGroupPopupPlace(groupId));
-      if (e instanceof MouseEvent) {
-        popup.show(new RelativePoint((MouseEvent)e));
-      }
-      else {
-        popup.showInBestPositionFor(ctx);
-      }
-    }
-    else {
-      ActionUtil.performActionDumbAware(action, actionEvent);
-    }
-
-    if (e instanceof KeyEvent && Registry.is("actionSystem.fixLostTyping")) {
-      IdeEventQueue.getInstance().doWhenReady(() -> IdeEventQueue.getInstance().getKeyEventDispatcher().resetState());
-    }
-  }
-
   public boolean processAction(@NotNull InputEvent e, @NotNull ActionProcessor processor) {
     boolean result = processAction(
-      e, ActionPlaces.KEYBOARD_SHORTCUT, myContext.getDataContext(), new ArrayList<>(myContext.getActions()), processor,
-      myPresentationFactory, ActionManagerEx.getInstanceEx());
+      e, ActionPlaces.KEYBOARD_SHORTCUT, myContext.getDataContext(),
+      new ArrayList<>(myContext.getActions()), processor, myPresentationFactory);
     if (!result) {
       IdeEventQueue.getInstance().flushDelayedKeyEvents();
     }
@@ -638,8 +585,7 @@ public final class IdeKeyEventDispatcher implements Disposable {
                         @NotNull DataContext context,
                         @NotNull List<AnAction> actions,
                         @NotNull ActionProcessor processor,
-                        @NotNull PresentationFactory presentationFactory,
-                        @NotNull ActionManagerEx actionManager) {
+                        @NotNull PresentationFactory presentationFactory) {
     if (actions.isEmpty()) return false;
     DataContext wrappedContext = Utils.wrapDataContext(context);
     Project project = CommonDataKeys.PROJECT.getData(wrappedContext);
@@ -650,16 +596,15 @@ public final class IdeKeyEventDispatcher implements Disposable {
     Trinity<AnAction, AnActionEvent, Long> chosen = Utils.runUpdateSessionForInputEvent(
       e, wrappedContext, place, processor, presentationFactory,
       event -> events.put(event.getPresentation(), event),
-      session -> {
-        ReadAction.run(() -> rearrangeByPromoters(actions, Utils.freezeDataContext(wrappedContext, null)));
-        return doUpdateActionsInner(actions, dumb, wouldBeEnabledIfNotDumb, session, events::get);
-      });
+      session -> Utils.tryInReadAction(
+        () -> rearrangeByPromoters(actions, Utils.freezeDataContext(wrappedContext, null))) ?
+                 doUpdateActionsInner(actions, dumb, wouldBeEnabledIfNotDumb, session, events::get) : null);
 
-    doPerformActionInner(chosen, e, processor, wrappedContext, actionManager, project, wouldBeEnabledIfNotDumb, () -> {
+    doPerformActionInner(chosen, e, processor, wrappedContext, project, wouldBeEnabledIfNotDumb, () -> {
       //invokeLater to make sure correct dataContext is taken from focus
       ApplicationManager.getApplication().invokeLater(() ->
         DataManager.getInstance().getDataContextFromFocusAsync().onSuccess(ctx ->
-          processAction(e, place, ctx, actions, processor, presentationFactory, actionManager)
+          processAction(e, place, ctx, actions, processor, presentationFactory)
         )
       );
     });
@@ -698,31 +643,40 @@ public final class IdeKeyEventDispatcher implements Disposable {
                                     @NotNull InputEvent e,
                                     @NotNull ActionProcessor processor,
                                     @NotNull DataContext context,
-                                    @NotNull ActionManagerEx actionManager,
                                     @Nullable Project project,
                                     @NotNull List<? extends AnAction> wouldBeEnabledIfNotDumb,
                                     @NotNull Runnable retryRunnable) {
     if (chosen != null) {
       AnAction action = chosen.first;
-      AnActionEvent actionEvent = chosen.second.withDataContext(context); // use not frozen data context
-      long startedAt = chosen.third;
-      processor.onUpdatePassed(e, action, actionEvent);
-
-      if (context instanceof DataManagerImpl.MyDataContext) { // this is not true for test data contexts
-        ((DataManagerImpl.MyDataContext)context).setEventCount(IdeEventQueue.getInstance().getEventCount());
-      }
-      actionManager.fireBeforeActionPerformed(action, actionEvent.getDataContext(), actionEvent);
-      if (isContextComponentNotVisible(actionEvent)) {
-        logTimeMillis(startedAt, action);
+      if (myContext.getSecondStrokeActions().contains(chosen.first)) {
+        waitSecondStroke(chosen.first, chosen.second.getPresentation());
         return;
       }
 
-      if (e.getID() == KeyEvent.KEY_PRESSED) {
-        myIgnoreNextKeyTypedEvent = true;
+      AnActionEvent actionEvent = chosen.second.withDataContext(context); // use not frozen data context
+      long startedAt = chosen.third;
+      if (Registry.is("actionSystem.update.actions.call.beforeActionPerformedUpdate.once") &&
+          !ActionUtil.lastUpdateAndCheckDumb(action, actionEvent, false)) {
+        LOG.warn("Action '" + actionEvent.getPresentation().getText() + "' (" + action.getClass() + ") " +
+                 "has become disabled in `beforeActionPerformedUpdate` right after successful `update`");
+        return;
       }
-      ((TransactionGuardImpl)TransactionGuard.getInstance()).performUserActivity(
-        () -> processor.performAction(e, action, actionEvent));
-      actionManager.fireAfterActionPerformed(action, actionEvent.getDataContext(), actionEvent);
+      processor.onUpdatePassed(e, action, actionEvent);
+
+      int eventCount = IdeEventQueue.getInstance().getEventCount();
+      if (context instanceof EdtDataContext) { // this is not true for test data contexts
+        ((EdtDataContext)context).setEventCount(eventCount);
+      }
+      ActionUtil.performDumbAwareWithCallbacks(action, actionEvent, () -> {
+        if (e.getID() == KeyEvent.KEY_PRESSED) {
+          myIgnoreNextKeyTypedEvent = true;
+        }
+        LOG.assertTrue(eventCount == IdeEventQueue.getInstance().getEventCount(),
+                       "Event counts do not match: " + eventCount + " != " + IdeEventQueue.getInstance().getEventCount());
+        try (AccessToken ignore = ((TransactionGuardImpl)TransactionGuard.getInstance()).startActivity(true)) {
+          processor.performAction(e, action, actionEvent);
+        }
+      });
       logTimeMillis(startedAt, action);
       return;
     }
@@ -738,11 +692,6 @@ public final class IdeKeyEventDispatcher implements Disposable {
       String message = getActionUnavailableMessage(wouldBeEnabledIfNotDumb);
       showDumbModeBalloonLaterIfNobodyConsumesEvent(project, message, retryRunnable, __ -> e.isConsumed());
     }
-  }
-
-  private static boolean isContextComponentNotVisible(@NotNull AnActionEvent actionEvent) {
-    Component component = actionEvent.getData(PlatformDataKeys.CONTEXT_COMPONENT);
-    return component != null && !component.isShowing();
   }
 
   private static void showDumbModeBalloonLaterIfNobodyConsumesEvent(@Nullable Project project,
@@ -795,10 +744,11 @@ public final class IdeKeyEventDispatcher implements Disposable {
    * This method fills {@code myActions} list.
    */
   private KeyEvent lastKeyEventForCurrentContext;
-  public void updateCurrentContext(Component component, @NotNull Shortcut sc) {
+
+  public void updateCurrentContext(@Nullable Component component, @NotNull Shortcut sc) {
     KeyEvent keyEvent = myContext.getInputEvent();
     myContext.setFoundComponent(null);
-    myContext.setHasSecondStroke(false);
+    myContext.getSecondStrokeActions().clear();
     myContext.getActions().clear();
 
     if (Registry.is("ide.edt.update.context.only.on.key.pressed.event")) {
@@ -830,7 +780,7 @@ public final class IdeKeyEventDispatcher implements Disposable {
 
     addActionsFromActiveKeymap(sc);
 
-    if (!myContext.isHasSecondStroke() && sc instanceof KeyboardShortcut) {
+    if (myContext.getSecondStrokeActions().isEmpty() && sc instanceof KeyboardShortcut) {
       // little trick to invoke action which second stroke is a key w/o modifiers, but user still
       // holds the modifier key(s) of the first stroke
 
@@ -845,7 +795,7 @@ public final class IdeKeyEventDispatcher implements Disposable {
     }
   }
 
-  private static void rearrangeByPromoters(List<AnAction> actions, DataContext context) {
+  private static boolean rearrangeByPromoters(List<AnAction> actions, DataContext context) {
     List<AnAction> readOnlyActions = Collections.unmodifiableList(actions);
     for (ActionPromoter promoter : getPromoters(actions)) {
       try {
@@ -859,6 +809,7 @@ public final class IdeKeyEventDispatcher implements Disposable {
         LOG.error(e);
       }
     }
+    return true;
   }
 
   @NotNull
@@ -909,6 +860,8 @@ public final class IdeKeyEventDispatcher implements Disposable {
   }
 
   private void addAction(@NotNull AnAction action, @NotNull Shortcut sc) {
+    if (action instanceof EmptyAction) return;
+    boolean isNotTwoStroke = sc instanceof KeyboardShortcut && ((KeyboardShortcut)sc).getSecondKeyStroke() == null;
     for (Shortcut each : action.getShortcutSet().getShortcuts()) {
       if (each == null) {
         throw new NullPointerException("unexpected shortcut of action: " + action);
@@ -916,37 +869,21 @@ public final class IdeKeyEventDispatcher implements Disposable {
       if (!each.isKeyboard()) {
         continue;
       }
-
       if (each.startsWith(sc)) {
-        if (each instanceof KeyboardShortcut && ((KeyboardShortcut)each).getSecondKeyStroke() != null) {
-          long startedAt = System.currentTimeMillis();
-
-          Presentation presentation = myPresentationFactory.getPresentation(action);
-          AnActionEvent actionEvent = myActionProcessor.createEvent(
-            myContext.getInputEvent(), myContext.getDataContext(), ActionPlaces.KEYBOARD_SHORTCUT, presentation,
-            ActionManager.getInstance());
-          ActionUtil.performDumbAwareUpdate(LaterInvocator.isInModalContext(), action, actionEvent, false);
-
-          logTimeMillis(startedAt, action);
-          if (!presentation.isEnabled()) {
-            continue;
-          }
-          myContext.setHasSecondStroke(true);
+        if (each instanceof KeyboardShortcut && ((KeyboardShortcut)each).getSecondKeyStroke() != null &&
+            isNotTwoStroke && !myContext.getSecondStrokeActions().contains(action)) {
+          myContext.getSecondStrokeActions().add(action);
         }
-        if (!myContext.getActions().contains(action) && !(action instanceof EmptyAction)) {
+        if (!myContext.getActions().contains(action)) {
           myContext.getActions().add(action);
         }
       }
     }
   }
 
-  public KeyProcessorContext getContext() {
+  @ApiStatus.Internal
+  public @NotNull KeyProcessorContext getContext() {
     return myContext;
-  }
-
-  @Override
-  public void dispose() {
-    myDisposed = true;
   }
 
   public KeyState getState() {
@@ -1021,7 +958,7 @@ public final class IdeKeyEventDispatcher implements Disposable {
   }
 
   private static void logTimeMillis(long startedAt, @NotNull AnAction action) {
-    EventWatcher watcher = EventWatcher.getInstance();
+    EventWatcher watcher = EventWatcher.getInstanceOrNull();
     if (watcher != null) {
       watcher.logTimeMillis(action.toString(), startedAt);
     }

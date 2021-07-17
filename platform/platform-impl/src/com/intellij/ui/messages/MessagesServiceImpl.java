@@ -1,10 +1,11 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui.messages;
 
 import com.intellij.diagnostic.LoadingState;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.*;
+import com.intellij.openapi.ui.messages.AlertMessagesManager;
 import com.intellij.openapi.ui.messages.MessageDialog;
 import com.intellij.openapi.ui.messages.MessagesService;
 import com.intellij.openapi.ui.messages.TwoStepConfirmationDialog;
@@ -47,9 +48,15 @@ public class MessagesServiceImpl implements MessagesService {
                                int focusedOptionIndex,
                                @Nullable Icon icon,
                                @Nullable DialogWrapper.DoNotAskOption doNotAskOption,
-                               boolean alwaysUseIdeaUI) {
+                               boolean alwaysUseIdeaUI,
+                               @Nullable String helpId) {
     if (isApplicationInUnitTestOrHeadless()) {
       return TestDialogManager.getTestImplementation().show(message);
+    }
+
+    if (AlertMessagesManager.isEnabled()) {
+      return AlertMessagesManager.instance().showMessageDialog(project, parentComponent, message, title, options, defaultOptionIndex,
+                                                               focusedOptionIndex, icon, doNotAskOption, helpId);
     }
 
     try {
@@ -58,7 +65,7 @@ public class MessagesServiceImpl implements MessagesService {
         if (windowManager != null) {
           Window parentWindow = windowManager.suggestParentWindow(project);
           return MacMessages.getInstance()
-            .showMessageDialog(title, message, options, false, parentWindow, defaultOptionIndex, focusedOptionIndex, doNotAskOption);
+            .showMessageDialog(title, message, options, parentWindow, defaultOptionIndex, focusedOptionIndex, doNotAskOption, icon, null);
         }
       }
     }
@@ -67,7 +74,7 @@ public class MessagesServiceImpl implements MessagesService {
       LOG.error(reportThis);
     }
 
-    MessageDialog dialog = new MessageDialog(project, parentComponent, message, title, options, defaultOptionIndex, focusedOptionIndex, icon, doNotAskOption, false);
+    MessageDialog dialog = new MessageDialog(project, parentComponent, message, title, options, defaultOptionIndex, focusedOptionIndex, icon, doNotAskOption, false, helpId);
     dialog.show();
     return dialog.getExitCode();
   }
@@ -88,8 +95,8 @@ public class MessagesServiceImpl implements MessagesService {
     try {
       if (canShowMacSheetPanel() && moreInfo == null) {
         return MacMessages.getInstance()
-          .showMessageDialog(title, message, options, false, WindowManager.getInstance().suggestParentWindow(project), defaultOptionIndex,
-                             focusedOptionIndex, null);
+          .showMessageDialog(title, message, options, WindowManager.getInstance().suggestParentWindow(project), defaultOptionIndex,
+                             focusedOptionIndex, null, icon, null);
       }
     }
     catch (MessageException ignored) {/*rollback the message and show a dialog*/}

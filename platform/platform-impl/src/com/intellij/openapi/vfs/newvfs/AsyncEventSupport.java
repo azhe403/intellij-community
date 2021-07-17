@@ -18,8 +18,8 @@ import com.intellij.openapi.vfs.newvfs.persistent.PersistentFS;
 import com.intellij.openapi.vfs.newvfs.persistent.PersistentFSImpl;
 import com.intellij.util.containers.CollectionFactory;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.containers.HashingStrategy;
 import it.unimi.dsi.fastutil.Hash;
-import it.unimi.dsi.fastutil.objects.ObjectOpenCustomHashSet;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -40,11 +40,9 @@ public final class AsyncEventSupport {
   // So, we cannot rely on listener's execution and nesting order in this case and we should explicitly mark events that supposed to be processed asynchronously.
   //
   @NotNull
-  private static final Set<List<? extends VFileEvent>> ourAsyncProcessedEvents
-    = new ObjectOpenCustomHashSet<>(1, new IdentityHashingStrategy());
+  private static final Set<List<? extends VFileEvent>> ourAsyncProcessedEvents = CollectionFactory.createCustomHashingStrategySet(HashingStrategy.identity());
   @NotNull
-  private static final Map<List<? extends VFileEvent>, List<AsyncFileListener.ChangeApplier>> ourAppliers
-    = CollectionFactory.createSmallMemoryFootprintMap(1);
+  private static final Map<List<? extends VFileEvent>, List<AsyncFileListener.ChangeApplier>> ourAppliers = CollectionFactory.createSmallMemoryFootprintMap(1);
 
   public static void startListening() {
     Application app = ApplicationManager.getApplication();
@@ -52,7 +50,7 @@ public final class AsyncEventSupport {
 
     app.getMessageBus().connect().subscribe(VirtualFileManager.VFS_CHANGES, new BulkFileListener() {
       @Override
-      public void before(@NotNull List<? extends VFileEvent> events) {
+      public void before(@NotNull List<? extends @NotNull VFileEvent> events) {
         if (ourAsyncProcessedEvents.contains(events)) {
           return;
         }
@@ -62,7 +60,7 @@ public final class AsyncEventSupport {
       }
 
       @Override
-      public void after(@NotNull List<? extends VFileEvent> events) {
+      public void after(@NotNull List<? extends @NotNull VFileEvent> events) {
         if (ourAsyncProcessedEvents.contains(events)) {
           return;
         }

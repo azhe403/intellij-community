@@ -54,7 +54,7 @@ public final class JBCefClient implements JBCefDisposable {
     public static final @NotNull String JS_QUERY_POOL_SIZE = "JBCefClient.JSQuery.poolSize";
 
     static {
-      PropertiesHelper.putType(JS_QUERY_POOL_SIZE, Integer.class);
+      PropertiesHelper.setType(JS_QUERY_POOL_SIZE, Integer.class);
     }
   }
 
@@ -64,6 +64,7 @@ public final class JBCefClient implements JBCefDisposable {
   private static final int JS_QUERY_POOL_MAX_SIZE = 10000;
 
   @NotNull private final CefClient myCefClient;
+  private final boolean myIsDefault;
   @NotNull private final DisposeHelper myDisposeHelper = new DisposeHelper();
   @Nullable private volatile JSQueryPool myJSQueryPool;
   @NotNull private final AtomicInteger myJSQueryCounter = new AtomicInteger(0);
@@ -73,6 +74,7 @@ public final class JBCefClient implements JBCefDisposable {
   private final HandlerSupport<CefDisplayHandler> myDisplayHandler = new HandlerSupport<>();
   private final HandlerSupport<CefDownloadHandler> myDownloadHandler = new HandlerSupport<>();
   private final HandlerSupport<CefDragHandler> myDragHandler = new HandlerSupport<>();
+  private final HandlerSupport<CefMediaAccessHandler> myMediaAccessHandler = new HandlerSupport<>();
   private final HandlerSupport<CefFocusHandler> myFocusHandler = new HandlerSupport<>();
   private final HandlerSupport<CefJSDialogHandler> myJSDialogHandler = new HandlerSupport<>();
   private final HandlerSupport<CefKeyboardHandler> myKeyboardHandler = new HandlerSupport<>();
@@ -80,8 +82,9 @@ public final class JBCefClient implements JBCefDisposable {
   private final HandlerSupport<CefLoadHandler> myLoadHandler = new HandlerSupport<>();
   private final HandlerSupport<CefRequestHandler> myRequestHandler = new HandlerSupport<>();
 
-  JBCefClient(@NotNull CefClient client) {
+  JBCefClient(@NotNull CefClient client, boolean isDefault) {
     myCefClient = client;
+    myIsDefault = isDefault;
     Disposer.register(JBCefApp.getInstance().getDisposable(), this);
 
     Runnable createPool = () -> {
@@ -104,6 +107,10 @@ public final class JBCefClient implements JBCefDisposable {
   @NotNull
   public CefClient getCefClient() {
     return myCefClient;
+  }
+
+  boolean isDefault() {
+    return myIsDefault;
   }
 
   @Override
@@ -347,6 +354,24 @@ public final class JBCefClient implements JBCefDisposable {
 
   public void removeDragHandler(@NotNull CefDragHandler handler, @NotNull CefBrowser browser) {
     myDragHandler.remove(handler, browser, () -> myCefClient.removeDragHandler());
+  }
+
+  public JBCefClient addMediaAccessHandler(@NotNull CefMediaAccessHandler handler, @NotNull CefBrowser browser) {
+    return myMediaAccessHandler.add(handler, browser, () -> {
+      myCefClient.addMediaAccessHandler(new CefMediaAccessHandler() {
+
+        @Override
+        public boolean onRequestMediaAccessPermission(CefBrowser browser,
+                                                      CefFrame frame,
+                                                      String requesting_url,
+                                                      int requested_permissions,
+                                                      CefMediaAccessCallback callback) {
+          return myMediaAccessHandler.handle(browser, handler -> {
+            return handler.onRequestMediaAccessPermission(browser, frame, requesting_url, requested_permissions, callback);
+          });
+        }
+      });
+    });
   }
 
   public JBCefClient addFocusHandler(@NotNull CefFocusHandler handler, @NotNull CefBrowser browser) {

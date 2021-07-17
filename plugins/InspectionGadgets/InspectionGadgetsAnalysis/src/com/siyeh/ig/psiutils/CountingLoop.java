@@ -1,12 +1,12 @@
 // Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.siyeh.ig.psiutils;
 
+import com.intellij.codeInspection.dataFlow.DfaPsiUtil;
 import com.intellij.codeInspection.dataFlow.value.RelationType;
 import com.intellij.psi.*;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.psi.util.TypeConversionUtil;
-import com.siyeh.ig.psiutils.VariableAccessUtils.CountingLoopType;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -23,7 +23,7 @@ public final class CountingLoop {
   final @NotNull PsiExpression myInitializer;
   final @NotNull PsiExpression myBound;
   final boolean myIncluding;
-  final boolean myDescending;
+  final LoopDirection myDirection;
   final boolean myMayOverflow;
 
   private CountingLoop(@NotNull PsiLoopStatement loop,
@@ -31,14 +31,14 @@ public final class CountingLoop {
                        @NotNull PsiExpression initializer,
                        @NotNull PsiExpression bound,
                        boolean including,
-                       boolean descending,
+                       @NotNull LoopDirection direction,
                        boolean mayOverflow) {
     myInitializer = initializer;
     myCounter = counter;
     myLoop = loop;
     myBound = bound;
     myIncluding = including;
-    myDescending = descending;
+    myDirection = direction;
     myMayOverflow = mayOverflow;
   }
 
@@ -85,12 +85,12 @@ public final class CountingLoop {
    * @return true if the loop is descending
    */
   public boolean isDescending() {
-    return myDescending;
+    return myDirection == LoopDirection.DESCENDING;
   }
 
   /**
-   * @return true if the loop variable may experience integer overflow before reaching the bound, 
-   * like for(int i = 10; i != -10; i++) will go through MAX_VALUE and MIN_VALUE. 
+   * @return true if the loop variable may experience integer overflow before reaching the bound,
+   * like for(int i = 10; i != -10; i++) will go through MAX_VALUE and MIN_VALUE.
    */
   public boolean mayOverflow() {
     return myMayOverflow;
@@ -112,21 +112,20 @@ public final class CountingLoop {
     if(initializer == null) return null;
 
     // check that increment is like for(...;...;i++)
-    CountingLoopType countingLoopType = VariableAccessUtils.evaluateCountingLoopType(counter, forStatement.getUpdate());
-    if (countingLoopType == null) return null;
-    boolean descending = countingLoopType == CountingLoopType.DEC;
+    LoopDirection loopDirection = LoopDirection.evaluateLoopDirection(counter, forStatement.getUpdate());
+    if (loopDirection == null) return null;
 
     // check that condition is like for(...;i<bound;...) or for(...;i<=bound;...)
     PsiBinaryExpression condition = tryCast(PsiUtil.skipParenthesizedExprDown(forStatement.getCondition()), PsiBinaryExpression.class);
     if(condition == null) return null;
     IElementType type = condition.getOperationTokenType();
     boolean closed = false;
-    RelationType relationType = RelationType.fromElementType(type);
+    RelationType relationType = DfaPsiUtil.getRelationByToken(type);
     if (relationType == null || !relationType.isInequality()) return null;
     if (relationType.isSubRelation(RelationType.EQ)) {
       closed = true;
     }
-    if (descending) {
+    if (loopDirection == LoopDirection.DESCENDING) {
       relationType = relationType.getFlipped();
       assert relationType != null;
     }
@@ -139,6 +138,6 @@ public final class CountingLoop {
     if (!relationType.isSubRelation(RelationType.LT)) return null;
     if(!TypeConversionUtil.areTypesAssignmentCompatible(counterType, bound)) return null;
     if(VariableAccessUtils.variableIsAssigned(counter, forStatement.getBody())) return null;
-    return new CountingLoop(forStatement, counter, initializer, bound, closed, descending, relationType == RelationType.NE);
+    return new CountingLoop(forStatement, counter, initializer, bound, closed, loopDirection, relationType == RelationType.NE);
   }
 }

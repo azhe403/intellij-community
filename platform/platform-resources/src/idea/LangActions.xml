@@ -94,6 +94,11 @@
       <add-to-group group-id="FileMenu" anchor="after" relative-to-action="PrintExportGroup"/>
     </reference>
 
+    <action id="SaveFileAsTemplate" class="com.intellij.ide.actions.SaveFileAsTemplateAction">
+      <add-to-group group-id="FileMenu" anchor="after" relative-to-action="FileOtherSettingsGroup"/>
+    </action>
+
+
     <action id="ChangeTemplateDataLanguage" class="com.intellij.psi.templateLanguages.ChangeTemplateDataLanguageAction">
       <add-to-group group-id="FilePropertiesGroup" anchor="before" relative-to-action="ToggleReadOnlyAttribute"/>
       <add-to-group group-id="EditorPopupMenu" anchor="before" relative-to-action="ToggleReadOnlyAttribute"/>
@@ -153,6 +158,7 @@
       <action id="EditBookmark" class="com.intellij.ide.bookmarks.actions.EditBookmarkAction"/>
       <action id="ToggleBookmark" class="com.intellij.ide.bookmarks.actions.ToggleBookmarkAction"/>
       <action id="ToggleBookmarkWithMnemonic" class="com.intellij.ide.bookmarks.actions.ChooseBookmarkTypeAction"/>
+      <action id="DeleteMnemonicFromBookmark" class="com.intellij.ide.bookmarks.actions.DeleteBookmarkTypeAction"/>
       <action id="ShowBookmarks" class="com.intellij.ide.bookmarks.actions.BookmarksAction"/>
       <action id="GotoNextBookmark" class="com.intellij.ide.bookmarks.actions.NextBookmarkAction"/>
       <action id="GotoPreviousBookmark" class="com.intellij.ide.bookmarks.actions.PreviousBookmarkAction"/>
@@ -239,6 +245,7 @@
 
     <group id="EditBookmarksGroup" popup="true">
       <reference ref="ToggleBookmark"/>
+      <reference ref="DeleteMnemonicFromBookmark"/>
       <reference ref="ToggleBookmarkWithMnemonic"/>
       <reference ref="ShowBookmarks"/>
       <reference ref="GotoNextBookmark"/>
@@ -251,6 +258,7 @@
     <group id="popup@BookmarkContextMenu">
       <reference ref="EditBookmark"/>
       <reference ref="ToggleBookmark"/>
+      <reference ref="DeleteMnemonicFromBookmark"/>
       <reference ref="ToggleBookmarkWithMnemonic"/>
       <separator/>
 
@@ -381,8 +389,42 @@
         <action id="HippieBackwardCompletion" class="com.intellij.codeInsight.completion.actions.HippieBackwardCompletionAction"/>
       </group>
 
+      <group id="InspectCodeInCodeMenuGroup">
+        <separator/>
+        <group id="InspectCodeGroup">
+          <action id="InspectCode" class="com.intellij.codeInspection.actions.CodeInspectionAction"/>
+          <action id="CodeCleanup" class="com.intellij.codeInspection.actions.CodeCleanupAction"/>
+        </group>
+
+        <group id="AnalyzeActionsPopup" popup="true">
+          <group id="AnalyzeActions">
+            <action id="SilentCodeCleanup" class="com.intellij.codeInspection.actions.SilentCodeCleanupAction" />
+            <action id="RunInspection" class="com.intellij.codeInspection.actions.RunInspectionAction" />
+            <action id="PopupHector" class="com.intellij.codeInsight.daemon.impl.ConfigureHighlightingLevelAction"/>
+            <action id="ViewOfflineInspection" class="com.intellij.codeInspection.actions.ViewOfflineResultsAction"/>
+            <separator/>
+            <action id="SliceBackward" class="com.intellij.slicer.SliceBackwardAction">
+              <override-text place="MainMenu"/>
+              <override-text place="EditorPopup" use-text-of-place="MainMenu"/>
+            </action>
+            <action id="SliceForward" class="com.intellij.slicer.SliceForwardAction">
+              <override-text place="MainMenu"/>
+              <override-text place="EditorPopup" use-text-of-place="MainMenu"/>
+            </action>
+          </group>
+        </group>
+
+        <group id="AnalyzePlatformMenu">
+          <action id="Unscramble" class="com.intellij.unscramble.AnalyzeStacktraceAction">
+            <override-text place="EditorPopup"/>
+          </action>
+        </group>
+      </group>
+
       <separator/>
       <action id="InsertLiveTemplate" class="com.intellij.codeInsight.template.impl.actions.ListTemplatesAction"/>
+      <action id="SaveAsTemplate" class="com.intellij.codeInsight.template.actions.SaveAsTemplateAction"/>
+      <separator/>
       <action id="SurroundWith" class="com.intellij.codeInsight.generation.actions.SurroundWithAction"/>
       <action id="Unwrap" class="com.intellij.codeInsight.unwrap.UnwrapAction"/>
       <separator/>
@@ -458,25 +500,11 @@
 
     <action id="ToggleInlayHintsGloballyAction" class="com.intellij.codeInsight.hints.ToggleInlayHintsGloballyAction"/>
 
-    <!-- Analyze -->
-    <action id="SliceBackward" class="com.intellij.slicer.SliceBackwardAction">
-      <override-text place="MainMenu"/>
-      <override-text place="EditorPopup" use-text-of-place="MainMenu"/>
-    </action>
-    <action id="SliceForward" class="com.intellij.slicer.SliceForwardAction">
-      <override-text place="MainMenu"/>
-      <override-text place="EditorPopup" use-text-of-place="MainMenu"/>
-    </action>
-
     <!-- Refactor -->
     <group id="RefactoringMenu" popup="true">
     <action id="Refactorings.QuickListPopupAction" class="com.intellij.refactoring.actions.RefactoringQuickListPopupAction"/>
       <action id="RenameElement" class="com.intellij.refactoring.actions.RenameElementAction"/>
       <action id="ChangeSignature" class="com.intellij.refactoring.actions.ChangeSignatureAction"/>
-      <separator/>
-      <action id="Move" class="com.intellij.refactoring.actions.MoveAction"/>
-      <action id="CopyElement" class="com.intellij.ide.actions.CopyElementAction"/>
-      <action id="SafeDelete" class="com.intellij.refactoring.actions.SafeDeleteAction"/>
       <separator/>
       <group id="IntroduceActionsGroup" popup="true" class="com.intellij.ide.actions.PopupInMainMenuActionGroup">
         <action id="IntroduceVariable" class="com.intellij.refactoring.actions.IntroduceVariableAction"/>
@@ -494,12 +522,16 @@
         <action id="ExtractSuperclass" class="com.intellij.refactoring.actions.ExtractSuperclassAction"/>
         <action id="ExtractModule" class="com.intellij.refactoring.actions.ExtractModuleAction"/>
       </group>
-
       <action id="Inline" class="com.intellij.refactoring.actions.InlineAction"/>
-      <action id="InvertBoolean" class="com.intellij.refactoring.actions.InvertBooleanAction"/>
       <separator/>
+      <action id="Move" class="com.intellij.refactoring.actions.MoveAction"/>
+      <action id="CopyElement" class="com.intellij.ide.actions.CopyElementAction"/>
+      <action id="SafeDelete" class="com.intellij.refactoring.actions.SafeDeleteAction"/>
+      <separator/>
+
       <action id="MembersPullUp" class="com.intellij.refactoring.actions.PullUpAction"/>
       <action id="MemberPushDown" class="com.intellij.refactoring.actions.PushDownAction"/>
+      <action id="InvertBoolean" class="com.intellij.refactoring.actions.InvertBooleanAction"/>
       <add-to-group group-id="MainMenu" anchor="after" relative-to-action="CodeMenu"/>
     </group>
 
@@ -525,18 +557,18 @@
 
     <!-- Tools -->
     <group id="ToolsBasicGroup">
-      <action id="SaveAsTemplate" class="com.intellij.codeInsight.template.actions.SaveAsTemplateAction"/>
-      <action id="SaveFileAsTemplate" class="com.intellij.ide.actions.SaveFileAsTemplateAction"/>
-      <separator/>
 
       <add-to-group group-id="ToolsMenu" anchor="first"/>
 
       <action id="IdeScriptingConsole" class="com.intellij.ide.script.RunIdeConsoleAction"/>
     </group>
+    <action id="NewScratchFile" class="com.intellij.ide.scratch.ScratchFileActions$NewFileAction"/>
     <action id="NewScratchBuffer" class="com.intellij.ide.scratch.ScratchFileActions$NewBufferAction"/>
-    <action id="Scratch.ChangeLanguage" class="com.intellij.ide.scratch.ScratchFileActions$LanguageAction">
+    <action id="Scratch.ChangeLanguage" class="com.intellij.ide.scratch.ScratchFileActions$ChangeLanguageAction">
       <add-to-group group-id="EditorPopupMenu2"/>
     </action>
+    <action id="Scratch.ShowFilesPopup" class="com.intellij.ide.scratch.ScratchFileActions$ShowFilesPopupAction"/>
+    <action id="Scratch.ExportToScratch" class="com.intellij.ide.scratch.ScratchFileActions$ExportToScratchAction"/>
 
     <group id="ExternalToolsGroup" class="com.intellij.tools.ExternalToolsGroup">
       <add-to-group group-id="ToolsMenu" anchor="last"/>
@@ -545,7 +577,7 @@
 
     <group id="NewGroup" popup="true" searchable="false">
       <action id="NewFile" class="com.intellij.ide.actions.CreateFileAction"/>
-      <action id="NewScratchFile" class="com.intellij.ide.scratch.ScratchFileActions$NewFileAction" />
+      <reference id="NewScratchFile"/>
       <action id="NewDir" class="com.intellij.ide.actions.CreateDirectoryOrPackageAction"/>
       <group class="com.intellij.ide.fileTemplates.actions.FileTemplateSeparator" id="FileTemplateSeparatorGroup"/>
       <action id="NewFromTemplate" class="com.intellij.ide.fileTemplates.actions.CreateFromTemplateGroup"/>
@@ -607,7 +639,7 @@
       <group id="CenterToolbarSideGroup" class="com.intellij.ide.navigationToolbar.experimental.CenterToolbarGroup">
       </group>
       <group id="RightToolbarSideGroup" class="com.intellij.ide.navigationToolbar.experimental.RightToolbarGroup">
-        <action id="StateWidgetAction" class="com.intellij.execution.segmentedRunDebugWidget.StateWidgetAction"/>
+        <action id="RunToolbarWidgetAction" class="com.intellij.execution.runToolbar.RunToolbarWidgetAction"/>
         <reference id="SettingsEntryPoint"/>
       </group>
     </group>
@@ -616,18 +648,28 @@
       <action id="SearchEverywhereNewToolbarAction" class="com.intellij.ide.navigationToolbar.experimental.SearchEverywhereNewToolbarAction"/>
     </group>
 
-    <group id="StateWidgetPillActionGroup">
-      <action id="StateWidgetActiveProcessesPillAction" class="com.intellij.execution.segmentedRunDebugWidget.StateWidgetActiveProcessesPillAction"/>
-      <action id="StateWidgetPillBarAction" class="com.intellij.execution.segmentedRunDebugWidget.StateWidgetPillBarAction"/>
+    <group id="RunToolbarActionsGroup" popup="false">
+      <action id="RunToolbarProcessStartedAction" class="com.intellij.execution.runToolbar.RunToolbarProcessStartedAction"/>
+      <action id="RunToolbarRunConfigurationsAction" class="com.intellij.execution.runToolbar.RunToolbarRunConfigurationsAction"/>
+      <action id="RunToolbarRerunAction" class="com.intellij.execution.runToolbar.RunToolbarRerunAction"/>
+      <group id="RunToolbarAdditionalProcessActions"/>
+      <group id="RunToolbarProcessActionGroup"/>
+      <action id="RunToolbarStopAction" class="com.intellij.execution.runToolbar.RunToolbarStopAction"/>
+      <group id="RunToolbarMoreActionGroup" icon="AllIcons.Actions.More" popup="true" class="com.intellij.execution.runToolbar.RunToolbarMoreActionGroup"/>
     </group>
 
-    <group id="StateWidgetBarGroup" popup="false">
-      <action id="StateWidgetRunConfigurationsAction" class="com.intellij.execution.segmentedRunDebugWidget.StateWidgetRunConfigurationsAction"/>
-      <action id="StateWidgetRerunAction" class="com.intellij.execution.segmentedRunDebugWidget.StateWidgetRerunAction"/>
-      <group id="StateWidgetAdditionalActions"/>
-      <group id="StateWidgetProcessesActionGroup"/>
-      <action id="StateWidgetStop" class="com.intellij.execution.segmentedRunDebugWidget.StateWidgetStopAction" icon="AllIcons.Actions.Suspend"/>
-      <group id="StateWidgetMoreActionGroup" icon="AllIcons.Actions.More" popup="true" class="com.intellij.execution.segmentedRunDebugWidget.StateWidgetMoreActionGroup"/>
+    <group id="RunToolbarMainActionsGroup" popup="false">
+      <action id="RunToolbarExtraSlotsAction" class="com.intellij.execution.runToolbar.RunToolbarExtraSlotsAction" icon="AllIcons.Toolbar.AddSlot"/>
+      <reference id="RunToolbarProcessStartedAction"/>
+      <action id="RunToolbarMainMultipleProcessStartedAction" class="com.intellij.execution.runToolbar.RunToolbarMainMultipleProcessStartedAction"/>
+      <reference id="RunToolbarRunConfigurationsAction"/>
+      <reference id="RunToolbarRerunAction"/>
+      <reference id="RunToolbarAdditionalProcessActions"/>
+      <reference id="RunToolbarProcessActionGroup"/>
+      <reference id="RunToolbarStopAction"/>
+      <action id="RunToolbarMainMultipleStopAction" class="com.intellij.execution.runToolbar.RunToolbarMainMultipleStopAction" icon="AllIcons.Actions.Suspend"/>
+      <group id="RunToolbarMainMoreActionGroup" icon="AllIcons.Actions.More" popup="true" class="com.intellij.execution.runToolbar.RunToolbarMoreActionGroup"/>
+
     </group>
 
     <group id="ProjectViewPopupMenuRefactoringGroup" compact="true">
@@ -685,16 +727,20 @@
       <reference ref="ExternalToolsGroup"/>
       <separator/>
       <reference ref="ProjectViewPopupMenuSettingsGroup"/>
-      <group id="RemoveBom.Group">
-        <action id="RemoveBom" class="com.intellij.openapi.editor.actions.RemoveBomAction"/>
-        <add-to-group group-id="FilePropertiesGroup" anchor="after" relative-to-action="ChangeFileEncodingAction"/>
-        <add-to-group group-id="EditorPopupMenu" anchor="after" relative-to-action="ChangeFileEncodingAction"/>
-      </group>
-      <group id="AddBom.Group">
-        <action id="AddBom" class="com.intellij.openapi.editor.actions.AddBomAction"/>
-        <add-to-group group-id="FilePropertiesGroup" anchor="after" relative-to-action="RemoveBom"/>
-        <add-to-group group-id="EditorPopupMenu" anchor="after" relative-to-action="RemoveBom"/>
-      </group>
+    </group>
+
+    <group id="RemoveBom.Group">
+      <action id="RemoveBom" class="com.intellij.openapi.editor.actions.RemoveBomAction"/>
+      <add-to-group group-id="FilePropertiesGroup" anchor="after" relative-to-action="ChangeFileEncodingAction"/>
+    </group>
+    <group id="AddBom.Group">
+      <action id="AddBom" class="com.intellij.openapi.editor.actions.AddBomAction"/>
+      <add-to-group group-id="FilePropertiesGroup" anchor="after" relative-to-action="RemoveBom.Group"/>
+    </group>
+
+    <group id="EncodingPanelActions">
+      <reference ref="RemoveBom"/>
+      <reference ref="AddBom"/>
     </group>
 
     <group id="NavbarPopupMenu">
@@ -851,6 +897,7 @@
         <reference ref="GotoImplementation"/>
         <reference ref="GotoTypeDeclaration"/>
         <reference ref="GotoSuperMethod"/>
+        <reference ref="GotoRelated"/>
         <reference ref="GotoTest"/>
       </group>
       <reference ref="Generate"/>
@@ -1065,17 +1112,17 @@
     </group>
 
     <group id="XDebugger.ToolWindow.TopToolbar3">
+      <reference ref="Rerun"/>
+      <reference ref="Stop"/>
+      <separator/>
       <reference ref="Resume"/>
       <reference ref="StepOver"/>
       <reference ref="StepInto"/>
       <reference ref="StepOut"/>
       <separator/>
-      <reference ref="Rerun"/>
-      <reference ref="Stop"/>
-      <separator/>
       <reference ref="ViewBreakpoints"/>
       <reference ref="XDebugger.MuteBreakpoints"/>
-      <group id="XDebugger.ToolWindow.TopToolbar3.Extra" class="com.intellij.xdebugger.impl.ui.MorePopupGroup">
+      <group id="XDebugger.ToolWindow.TopToolbar3.Extra" class="com.intellij.openapi.actionSystem.impl.MoreActionGroup">
         <reference ref="ForceStepOver"/>
         <reference ref="ForceStepInto"/>
         <reference ref="SmartStepInto"/>
@@ -1169,6 +1216,9 @@
     </group>
 
     <group id="XDebugger.Settings" icon="AllIcons.General.GearPlain" popup="true">
+      <reference ref="CreateRunConfiguration"/>
+      <separator/>
+      <action id="XDebugger.PreviewTab" class="com.intellij.xdebugger.impl.actions.OpenFilesInPreviewTabAction"/>
       <action id="XDebugger.Inline" class="com.intellij.xdebugger.impl.actions.UseInlineDebuggerAction"/>
       <separator/>
       <reference ref="XDebugger.ToggleSortValues"/>
@@ -1211,7 +1261,7 @@
       <separator/>
       <action id="ConsoleView.ClearAll" class="com.intellij.execution.actions.ClearConsoleAction"/>
     </group>
-    
+
     <action id="SendEOF" class="com.intellij.execution.actions.EOFAction"/>
 
     <group>
@@ -1422,6 +1472,18 @@
     </action>
 
     <group id="TouchBar">
+      <group id="TouchBarEditorSearch">
+        <action id="EditorSearchSession.ToggleMatchCase" class="com.intellij.find.editorHeaderActions.ToggleMatchCase"/>
+        <action id="EditorSearchSession.ToggleWholeWordsOnlyAction" class="com.intellij.find.editorHeaderActions.ToggleWholeWordsOnlyAction"/>
+        <action id="EditorSearchSession.ToggleRegex" class="com.intellij.find.editorHeaderActions.ToggleRegex"/>
+        <separator text="type.large"/>
+        <action id="EditorSearchSession.PrevOccurrence" class="com.intellij.find.editorHeaderActions.PrevOccurrenceAction"/>
+        <action id="EditorSearchSession.NextOccurrenceAction" class="com.intellij.find.editorHeaderActions.NextOccurrenceAction"/>
+        <group id="TouchBarEditorSearch_ctrl">
+          <reference id="EditorSearchSession.ToggleMatchCase"/>
+          <reference id="EditorSearchSession.ToggleWholeWordsOnlyAction"/>
+        </group>
+      </group>
       <group id="TouchBarDefault">
         <reference ref="RunConfiguration"/>
         <group id="RunnerActionsTouchbar"/> <!--filled from ExecutorRegistry-->
@@ -1433,8 +1495,7 @@
           <separator/>
         </group>
         <group id="TouchBarDefault_alt">
-          <reference ref="SelectInProjectView"/>
-          <separator text="type.flexible"/>
+          <separator/>
         </group>
         <group id="TouchBarDefault_cmd">
           <!--Use Cmd modifier key to show Navigation buttons, Bookmark and Breakpoint toggles and to Show Usages/-->
@@ -1444,20 +1505,12 @@
           <separator text="type.large"/>
           <reference ref="ToggleBookmark"/>
           <reference ref="ToggleLineBreakpoint"/>
-          <separator text="type.flexible"/>
-          <reference ref="ShowUsages"/>
         </group>
         <group id="TouchBarDefault_cmd.alt">
-          <separator text="type.flexible"/>
-          <reference ref="FindUsages"/>
+          <separator/>
         </group>
         <group id="TouchBarDefault_shift">
-          <!--Use Shift to show Refactor actions/-->
-          <reference ref="RenameElement"/>
-          <reference ref="ChangeSignature"/>
-          <separator text="type.flexible"/>
-          <reference ref="CopyElement"/>
-          <reference ref="Move"/>
+          <separator/>
         </group>
       </group>
       <group id="TouchBarDebug">
@@ -1533,9 +1586,9 @@
 
     <action id="SwitchFileBasedIndexStorageAction"
             class="com.intellij.util.indexing.impl.storage.SwitchFileBasedIndexStorageAction"
-            text="Switch File-Based Index Storage"
-            internal="true">
-      <add-to-group group-id="Internal" anchor="last"/>
-    </action>
+            text="Switch File-Based Index Storage"/>
+
+    <action id="ClickLink" class="com.intellij.codeInsight.navigation.actions.ClickLinkAction"
+            use-shortcut-of="GotoDeclaration" />
   </actions>
 </idea-plugin>

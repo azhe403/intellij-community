@@ -6,7 +6,6 @@ import com.intellij.execution.ExecutionException;
 import com.intellij.execution.ShortenCommandLine;
 import com.intellij.execution.process.OSProcessHandler;
 import com.intellij.execution.process.ProcessTerminatedListener;
-import com.intellij.execution.target.TargetEnvironmentConfiguration;
 import com.intellij.execution.target.TargetEnvironmentRequest;
 import com.intellij.execution.target.TargetedCommandLineBuilder;
 import com.intellij.openapi.project.Project;
@@ -116,7 +115,9 @@ public class SimpleJavaParameters extends SimpleProgramParameters {
     return myUseDynamicVMOptions;
   }
 
-  /** Allows passing system properties via a temporary file in order to avoid "too long command line" problem. */
+  /**
+   * Allows passing system properties via a temporary file in order to avoid "too long command line" problem.
+   */
   public void setUseDynamicVMOptions(boolean useDynamicVMOptions) {
     myUseDynamicVMOptions = useDynamicVMOptions;
   }
@@ -125,7 +126,9 @@ public class SimpleJavaParameters extends SimpleProgramParameters {
     return myUseDynamicParameters;
   }
 
-  /** Allows passing program parameters via a temporary file in order to avoid "too long command line" problem. */
+  /**
+   * Allows passing program parameters via a temporary file in order to avoid "too long command line" problem.
+   */
   public void setUseDynamicParameters(boolean useDynamicParameters) {
     myUseDynamicParameters = useDynamicParameters;
   }
@@ -185,12 +188,13 @@ public class SimpleJavaParameters extends SimpleProgramParameters {
   }
 
   @ApiStatus.Experimental
+  @NotNull
   public JavaTargetDependentParameters getTargetDependentParameters() {
     return myTargetDependentParameters;
   }
 
   /**
-   * Consider using {@link #toCommandLine(TargetEnvironmentRequest, TargetEnvironmentConfiguration)} instead with request created by {@link com.intellij.execution.target.local.LocalTargetEnvironmentFactory} as an argument
+   * Consider using {@link #toCommandLine(TargetEnvironmentRequest)} instead with {@link com.intellij.execution.target.local.LocalTargetEnvironmentRequest} as an argument
    *
    * @throws CantRunException when incorrect Java SDK is specified
    * @see JdkUtil#setupJVMCommandLine(SimpleJavaParameters)
@@ -205,9 +209,9 @@ public class SimpleJavaParameters extends SimpleProgramParameters {
    * @see JdkUtil#setupJVMCommandLine(SimpleJavaParameters)
    */
   @NotNull
-  public TargetedCommandLineBuilder toCommandLine(@NotNull TargetEnvironmentRequest request, @Nullable TargetEnvironmentConfiguration configuration)
+  public TargetedCommandLineBuilder toCommandLine(@NotNull TargetEnvironmentRequest request)
     throws CantRunException {
-    return JdkUtil.setupJVMCommandLine(this, request, configuration);
+    return JdkUtil.setupJVMCommandLine(this, request);
   }
 
   @NotNull

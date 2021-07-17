@@ -2,6 +2,7 @@
 package com.intellij.ide.impl;
 
 import com.intellij.openapi.actionSystem.CommonDataKeys;
+import com.intellij.openapi.actionSystem.InjectedDataKeys;
 import com.intellij.openapi.actionSystem.PlatformDataKeys;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
@@ -20,11 +21,12 @@ public final class PlatformDataValidators extends DataValidators {
 
     Validator<Editor> editorValidator = (data, dataId, source) -> !data.isDisposed();
     registry.register(CommonDataKeys.EDITOR, editorValidator);
-    registry.registerInjected(CommonDataKeys.EDITOR, editorValidator);
     registry.register(CommonDataKeys.HOST_EDITOR, editorValidator);
+    registry.register(InjectedDataKeys.EDITOR, editorValidator);
 
     Validator<Object> objectValidator = (data, dataId, source) -> true;
     registry.register(CommonDataKeys.NAVIGATABLE_ARRAY, arrayValidator(objectValidator));
     registry.register(PlatformDataKeys.SELECTED_ITEMS, arrayValidator(objectValidator));
+    registry.register(PlatformDataKeys.LAST_ACTIVE_TOOL_WINDOWS, arrayValidator(objectValidator));
   }
 }

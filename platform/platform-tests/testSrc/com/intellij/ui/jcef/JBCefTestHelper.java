@@ -8,10 +8,14 @@ import org.cef.browser.CefFrame;
 import org.cef.handler.CefLoadHandlerAdapter;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 public class JBCefTestHelper {
+  /**
+   * Invokes and waits for a load completion. Either the runnable should load URL/HTML or the browser should be created with initial URL/HTML.
+   */
   public static void invokeAndWaitForLoad(@NotNull JBCefBrowserBase browser, @NotNull Runnable runnable) {
     CountDownLatch latch = new CountDownLatch(1);
 
@@ -25,6 +29,27 @@ public class JBCefTestHelper {
     }, browser.getCefBrowser());
 
     invokeAndWaitForLatch(latch, runnable);
+  }
+
+  /**
+   * Invokes and waits for the condition to become true.
+   */
+  public static void invokeAndWaitForCondition(@NotNull Runnable runnable, @NotNull Callable<Boolean> condition) {
+    CountDownLatch latch = new CountDownLatch(1);
+
+    invokeAndWaitForLatch(latch, () -> {
+      runnable.run();
+      latch.countDown();
+    });
+
+    try {
+      while (!condition.call()) {
+        //noinspection BusyWait
+        Thread.sleep(100);
+      }
+    } catch (Throwable e) {
+      throw new RuntimeException(e);
+    }
   }
 
   public static void invokeAndWaitForLatch(@NotNull CountDownLatch latch, @NotNull Runnable runnable) {

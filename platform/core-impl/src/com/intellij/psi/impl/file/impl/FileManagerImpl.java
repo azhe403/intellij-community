@@ -37,6 +37,7 @@ import org.jetbrains.annotations.TestOnly;
 import java.util.*;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 
 public final class FileManagerImpl implements FileManager {
   private static final Key<Boolean> IN_COMA = Key.create("IN_COMA");
@@ -202,7 +203,10 @@ public final class FileManagerImpl implements FileManager {
     if (vp != null) {
       Project project = vp.getManager().getProject();
       if (project != myManager.getProject()) {
-        LOG.error("Light files should have PSI only in one project, existing=" + vp + " in " + project + ", requested in " + myManager.getProject());
+        String psiFiles = vp.getAllFiles().stream().map(f -> f.getClass() + " [" + f.getLanguage() + "]").collect(Collectors.joining(", "));
+        LOG.error(
+          "Light files should have PSI only in one project, existing=" + vp + " in " + project + ", requested in " + myManager.getProject()
+          + "; psiFiles: " + psiFiles);
       }
     }
   }
@@ -213,8 +217,9 @@ public final class FileManagerImpl implements FileManager {
 
     if (viewProvider instanceof AbstractFileViewProvider && viewProvider.getUserData(IN_COMA) != null) {
       Map<VirtualFile, FileViewProvider> tempMap = myTempProviders.get();
-      if (tempMap.containsKey(file)) {
-        return tempMap.get(file);
+      FileViewProvider temp = tempMap.get(file);
+      if (temp != null) {
+        return temp;
       }
 
       if (!evaluateValidity((AbstractFileViewProvider)viewProvider)) {

@@ -44,6 +44,7 @@ public class SearchTextField extends JPanel {
   private JBPopup myPopup;
   private String myHistoryPropertyName;
   private final boolean historyPopupEnabled;
+  private boolean init = true;
 
   public SearchTextField() {
     this(true);
@@ -63,6 +64,10 @@ public class SearchTextField extends JPanel {
 
     myModel = new MyModel();
     myTextField = new TextFieldWithProcessing() {
+      {
+        this.putClientProperty("History.Popup.Enabled", historyPopupEnabled);
+      }
+
       @Override
       public void processKeyEvent(final KeyEvent e) {
         if (preprocessEventForTextField(e)) return;
@@ -148,6 +153,7 @@ public class SearchTextField extends JPanel {
     DumbAwareAction.create(event -> {
       showPopup();
     }).registerCustomShortcutSet(KeymapUtil.getActiveKeymapShortcuts("ShowSearchHistory"), myTextField);
+    init = false;
   }
 
   @Override
@@ -374,14 +380,16 @@ public class SearchTextField extends JPanel {
   }
 
   private void reInitPopup() {
-    hidePopup();
-    final JList<String> list = new JBList<>(myModel);
-    final Runnable chooseRunnable = createItemChosenCallback(list);
-    if(ApplicationManager.getApplication() != null && JBPopupFactory.getInstance() != null) {
-      myPopup = JBPopupFactory.getInstance().createListPopupBuilder(list)
-        .setMovable(false)
-        .setRequestFocus(true)
-        .setItemChoosenCallback(chooseRunnable).createPopup();
+    if(!init) {
+      hidePopup();
+      final JList<String> list = new JBList<>(myModel);
+      final Runnable chooseRunnable = createItemChosenCallback(list);
+      if (ApplicationManager.getApplication() != null && JBPopupFactory.getInstance() != null) {
+        myPopup = JBPopupFactory.getInstance().createListPopupBuilder(list)
+          .setMovable(false)
+          .setRequestFocus(true)
+          .setItemChoosenCallback(chooseRunnable).createPopup();
+      }
     }
   }
 

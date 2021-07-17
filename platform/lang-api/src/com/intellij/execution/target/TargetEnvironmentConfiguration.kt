@@ -1,11 +1,13 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.target
 
 import com.intellij.execution.ExecutionBundle
 import com.intellij.execution.configurations.RuntimeConfigurationException
 import com.intellij.execution.configurations.RuntimeConfigurationWarning
 import com.intellij.execution.target.ContributedConfigurationBase.Companion.getTypeImpl
+import com.intellij.openapi.components.BaseState
 import com.intellij.openapi.project.Project
+import java.util.*
 
 /**
  * Base class for configuration instances contributed by the ["com.intellij.executionTargetType"][TargetEnvironmentType.EXTENSION_NAME] extension point.
@@ -16,6 +18,13 @@ import com.intellij.openapi.project.Project
  * All available target configurations can be retrieved via [com.intellij.execution.target.TargetEnvironmentsManager]
  */
 abstract class TargetEnvironmentConfiguration(typeId: String) : ContributedConfigurationBase(typeId, TargetEnvironmentType.EXTENSION_NAME) {
+  /**
+   * Allows implementing links to the configuration. F.e. the link for the project default target.
+   *
+   * Note. Some initializations with generated UUID are excessive because they will be overridden during the deserialization.
+   */
+  var uuid: String = UUID.randomUUID().toString()
+    internal set
 
   val runtimes = ContributedConfigurationsList(LanguageRuntimeType.EXTENSION_NAME)
 
@@ -23,7 +32,7 @@ abstract class TargetEnvironmentConfiguration(typeId: String) : ContributedConfi
 
   fun removeLanguageRuntime(runtime: LanguageRuntimeConfiguration) = runtimes.removeConfig(runtime)
 
-  fun createEnvironmentFactory(project: Project): TargetEnvironmentFactory = getTargetType().createEnvironmentFactory(project, this)
+  fun createEnvironmentRequest(project: Project): TargetEnvironmentRequest = getTargetType().createEnvironmentRequest(project, this)
 
   abstract var projectRootOnTarget: String
 
@@ -42,6 +51,10 @@ abstract class TargetEnvironmentConfiguration(typeId: String) : ContributedConfi
         it.validateConfiguration()
       }
     }
+  }
+
+  abstract class TargetBaseState : BaseState() {
+    var uuid by string()
   }
 }
 

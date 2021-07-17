@@ -127,7 +127,7 @@ public abstract class PyUnresolvedReferencesVisitor extends PyInspectionVisitor 
       processInjection(host);
     }
     if (node instanceof PyReferenceOwner) {
-      final PyResolveContext resolveContext = PyResolveContext.defaultContext().withTypeEvalContext(myTypeEvalContext);
+      final PyResolveContext resolveContext = PyResolveContext.defaultContext(myTypeEvalContext);
       processReference(node, ((PyReferenceOwner)node).getReference(resolveContext));
     }
     else {
@@ -150,7 +150,7 @@ public abstract class PyUnresolvedReferencesVisitor extends PyInspectionVisitor 
           public void visitPyElement(@NotNull PyElement element) {
             super.visitPyElement(element);
             if (element instanceof PyReferenceOwner) {
-              final PyResolveContext resolveContext = PyResolveContext.defaultContext().withTypeEvalContext(myTypeEvalContext);
+              final PyResolveContext resolveContext = PyResolveContext.defaultContext(myTypeEvalContext);
               final PsiPolyVariantReference reference = ((PyReferenceOwner)element).getReference(resolveContext);
               markTargetImportsAsUsed(reference);
             }
@@ -386,13 +386,13 @@ public abstract class PyUnresolvedReferencesVisitor extends PyInspectionVisitor 
 
     ContainerUtil.addAll(fixes, getImportStatementQuickFixes(element));
     ContainerUtil.addAll(fixes, getAddIgnoredIdentifierQuickFixes(qualifiedNames));
-    ContainerUtil.addAll(fixes, getPluginQuickFixes(reference));
     ContainerUtil.addAll(fixes, getInstallPackageQuickFixes(node, reference, refName));
 
     if (reference instanceof PySubstitutionChunkReference) {
       return;
     }
 
+    getPluginQuickFixes(fixes, reference);
     registerProblem(node, description, hl_type, null, rangeInElement, fixes.toArray(LocalQuickFix.EMPTY_ARRAY));
   }
 
@@ -1059,7 +1059,7 @@ public abstract class PyUnresolvedReferencesVisitor extends PyInspectionVisitor 
     return null;
   }
 
-  Iterable<LocalQuickFix> getPluginQuickFixes(PsiReference reference) {
-    return Collections.emptyList();
+  void getPluginQuickFixes(List<LocalQuickFix> fixes, PsiReference reference) {
+    // Nothing.
   }
 }

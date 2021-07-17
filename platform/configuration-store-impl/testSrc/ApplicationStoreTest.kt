@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.configurationStore
 
 import com.intellij.configurationStore.schemeManager.ROOT_CONFIG
@@ -7,22 +7,21 @@ import com.intellij.openapi.components.*
 import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.util.io.BufferExposingByteArrayOutputStream
 import com.intellij.serviceContainer.ComponentManagerImpl
-import com.intellij.testFramework.ApplicationRule
-import com.intellij.testFramework.DisposableRule
-import com.intellij.testFramework.ExtensionTestUtil
+import com.intellij.testFramework.*
 import com.intellij.testFramework.assertions.Assertions.assertThat
-import com.intellij.testFramework.refreshVfs
 import com.intellij.testFramework.rules.InMemoryFsRule
 import com.intellij.util.io.lastModified
 import com.intellij.util.io.write
 import com.intellij.util.io.writeChild
-import com.intellij.util.pico.DefaultPicoContainer
+import com.intellij.util.io.*
 import com.intellij.util.xmlb.XmlSerializerUtil
 import com.intellij.util.xmlb.annotations.Attribute
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.assertj.core.data.MapEntry
 import org.intellij.lang.annotations.Language
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertNotNull
 import org.junit.Before
 import org.junit.ClassRule
@@ -34,7 +33,6 @@ import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.nio.file.Path
 import java.util.*
-import kotlin.collections.HashMap
 import kotlin.properties.Delegates
 
 internal class ApplicationStoreTest {
@@ -73,7 +71,8 @@ internal class ApplicationStoreTest {
     component.foo = "newValue"
     componentStore.save()
 
-    assertThat(streamProvider.data.get(RoamingType.DEFAULT)!!.get("new.xml")).isEqualTo("<application>\n  <component name=\"A\" foo=\"newValue\" />\n</application>")
+    assertThat(streamProvider.data.get(RoamingType.DEFAULT)!!.get("new.xml"))
+      .isEqualTo("<application>\n  <component name=\"A\" foo=\"newValue\" />\n</application>")
   }
 
   @Test fun `load from stream provider`() {
@@ -173,16 +172,16 @@ internal class ApplicationStoreTest {
 
     fun <B> Path.to(that: B) = MapEntry.entry(this, that)
 
-    val picoContainer = ApplicationManager.getApplication().picoContainer as MutablePicoContainer
-    val componentKey = A::class.java.name
-    picoContainer.registerComponent(DefaultPicoContainer.InstanceComponentAdapter(componentKey, component))
+    ApplicationManager.getApplication().registerServiceInstance(A::class.java, component)
     try {
-      assertThat(getExportableItemsFromLocalStorage(getExportableComponentsMap(false, storageManager), storageManager)).containsOnly(
-        componentPath.to(listOf(LocalExportableItem(componentPath, ""))),
-        additionalPath.to(listOf(LocalExportableItem(additionalPath, " (schemes)"))))
+      assertThat(getExportableItemsFromLocalStorage(getExportableComponentsMap(false, storageManager), storageManager))
+        .containsOnly(
+          componentPath.to(listOf(LocalExportableItem(componentPath, ""))),
+          additionalPath.to(listOf(LocalExportableItem(additionalPath, " (schemes)")))
+        )
     }
     finally {
-      picoContainer.unregisterComponent(componentKey)
+      (ApplicationManager.getApplication().picoContainer as MutablePicoContainer).unregisterComponent(A::class.java)
     }
   }
 
@@ -376,6 +375,60 @@ internal class ApplicationStoreTest {
     """.trimIndent())
   }
 
+  @Test
+  fun `test per-os components are stored in subfolder`() = runBlocking<Unit> {
+    val component = PerOsComponent()
+    componentStore.initComponent(component, null, null)
+    component.foo = "bar"
+
+    componentStore.save()
+
+    val osCode = getPerOsSettingsStorageFolderName()
+    val fs = testAppConfig.fileSystem
+    assertTrue("${osCode}/peros.xml doesn't exist", testAppConfig.resolve(fs.getPath(osCode, "peros.xml")).exists())
+    assertFalse("Old peros.xml without os prefix was not removed", testAppConfig.resolve("peros.xml").exists())
+  }
+
+  @Test
+  fun `test per-os component is read from deprecated top-level storage and moved to new location`() = runBlocking<Unit> {
+    writeConfig("peros.xml", "<application>${createComponentData("new")}</application>")
+
+    testAppConfig.refreshVfs()
+
+    val component = PerOsComponent()
+    componentStore.initComponent(component, null, null)
+    assertThat(component.foo).isEqualTo("new")
+
+    componentStore.save()
+
+    val osCode = getPerOsSettingsStorageFolderName()
+    val fs = testAppConfig.fileSystem
+    assertTrue("${osCode}/peros.xml doesn't exist", testAppConfig.resolve(fs.getPath(osCode, "peros.xml")).exists())
+    assertFalse("Old peros.xml without os prefix was not removed", testAppConfig.resolve("peros.xml").exists())
+  }
+
+  @Test
+  fun `per-os setting is preferred from os subfolder`() {
+    val osCode = getPerOsSettingsStorageFolderName()
+    writeConfig("peros.xml", "<application>${createComponentData("old")}</application>")
+    writeConfig("${osCode}/peros.xml", "<application>${createComponentData("new")}</application>")
+
+    testAppConfig.refreshVfs()
+
+    val component = PerOsComponent()
+    componentStore.initComponent(component, null, null)
+    assertThat(component.foo).isEqualTo("new")
+  }
+
+  @State(name = "A", storages = [Storage(value = "peros.xml", roamingType = RoamingType.PER_OS)])
+  private class PerOsComponent : Foo(), PersistentStateComponent<PerOsComponent> {
+    override fun getState() = this
+
+    override fun loadState(state: PerOsComponent) {
+      XmlSerializerUtil.copyBean(state, this)
+    }
+  }
+
   private fun writeConfig(fileName: String, @Language("XML") data: String) = testAppConfig.writeChild(fileName, data)
 
   private class MyStreamProvider : StreamProvider {
@@ -430,9 +483,7 @@ internal class ApplicationStoreTest {
 
   @State(name = "A", storages = [(Storage("new.xml")), (Storage(value = "old.xml", deprecated = true))])
   class SeveralStoragesConfigured : Foo(), PersistentStateComponent<SeveralStoragesConfigured> {
-    override fun getState(): SeveralStoragesConfigured? {
-      return this
-    }
+    override fun getState() = this
 
     override fun loadState(state: SeveralStoragesConfigured) {
       XmlSerializerUtil.copyBean(state, this)

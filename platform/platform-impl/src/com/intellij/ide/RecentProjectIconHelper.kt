@@ -2,14 +2,20 @@
 package com.intellij.ide
 
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.IconLoader
 import com.intellij.openapi.util.Pair
+import com.intellij.openapi.util.registry.Registry
 import com.intellij.ui.IconDeferrer
 import com.intellij.ui.JBColor
 import com.intellij.ui.scale.JBUIScale
+import com.intellij.ui.scale.ScaleContext
+import com.intellij.ui.scale.ScaleContextAware
+import com.intellij.util.IconUtil
 import com.intellij.util.ImageLoader
 import com.intellij.util.io.basicAttributesIfExists
 import com.intellij.util.io.exists
+import com.intellij.util.io.isDirectory
 import com.intellij.util.ui.*
 import org.imgscalr.Scalr
 import org.jetbrains.annotations.SystemIndependent
@@ -22,14 +28,48 @@ import java.net.MalformedURLException
 import java.nio.file.Path
 import java.nio.file.Paths
 import javax.swing.Icon
+import kotlin.io.path.extension
+import kotlin.io.path.nameWithoutExtension
+import kotlin.math.max
 
 private val LOG = logger<RecentProjectIconHelper>()
 
 internal class RecentProjectIconHelper {
   companion object {
+    private const val ideaDir = Project.DIRECTORY_STORE_FOLDER
+
+    fun getDotIdeaPath(path: Path): Path {
+      if (path.isDirectory()) return path.resolve(ideaDir)
+
+      val fileName = path.fileName.toString()
+
+      val dotIndex = fileName.lastIndexOf('.')
+      val fileNameWithoutExt = if (dotIndex == -1) fileName else fileName.substring(0, dotIndex)
+
+      return path.parent.resolve("$ideaDir/$ideaDir.$fileNameWithoutExt/$ideaDir")
+    }
+
+    fun getDotIdeaPath(path: String) = getDotIdeaPath(Paths.get(path))
+
     @JvmStatic
     fun createIcon(file: Path): Icon? {
       try {
+        if ("svg" == file.extension.toLowerCase()) {
+          return IconDeferrer.getInstance().defer(EmptyIcon.create(projectIconSize()), Pair(file.toAbsolutePath(), StartupUiUtil.isUnderDarcula())) {
+            val icon = IconLoader.findIcon(file.toUri().toURL(), false)
+            if (icon != null) {
+              if (icon is ScaleContextAware) {
+                icon.updateScaleContext(ScaleContext.create())
+              }
+
+              val iconSize = max(icon.iconWidth, icon.iconHeight)
+              if (iconSize == projectIconSize()) return@defer icon
+              return@defer IconUtil.scale(icon, null, projectIconSize().toFloat() / iconSize)
+            }
+
+            icon
+          }
+        }
         val image = ImageLoader.loadFromUrl(file.toUri().toURL()) ?: return null
         val targetSize = if (UIUtil.isRetina()) 32 else JBUI.pixScale(16f).toInt()
         return toRetinaAwareIcon(Scalr.resize(ImageUtil.toBufferedImage(image), Scalr.Method.ULTRA_QUALITY, targetSize))
@@ -39,63 +79,93 @@ internal class RecentProjectIconHelper {
       }
       return null
     }
+
+    @JvmStatic
+    private val projectIcons = HashMap<String, MyIcon>()
+
+    @JvmStatic
+    fun refreshProjectIcon(path: @SystemIndependent String) {
+      projectIcons.remove(path)
+    }
+
+    @JvmStatic
+    fun projectIconSize() = Registry.intValue("ide.project.icon.size", 20)
+
+    @JvmStatic
+    fun generateProjectIcon(path: @SystemIndependent String): Icon {
+      val projectManager = RecentProjectsManagerBase.instanceEx
+      val displayName = projectManager.getDisplayName(path)
+      val name = when {
+        displayName == null -> projectManager.getProjectName(path)
+        displayName.contains(",") -> iconTextForCommaSeparatedName(displayName)
+        else -> displayName
+      }
+      return AvatarUtils.createRoundRectIcon(AvatarUtils.generateColoredAvatar(name, name, ProjectIconPalette), projectIconSize())
+    }
+
+    // Examples:
+    // - "First, Second" => "FS"
+    // - "First Project, Second Project" => "FS"
+    private fun iconTextForCommaSeparatedName(name: String) =
+      name.split(",")
+        .take(2)
+        .map { word -> word.firstOrNull { !it.isWhitespace() } ?: "" }
+        .joinToString("")
+        .toUpperCase()
+
+    private fun calculateIcon(path: @SystemIndependent String, isDark: Boolean): Icon? {
+      val lookup = if (isDark) listOf("icon_dark.svg", "icon.svg", "icon_dark.png", "icon.png")
+      else listOf("icon.svg", "icon.png")
+      val iconName = lookup.firstOrNull { getDotIdeaPath(path).resolve(it).exists() } ?: return null
+
+      val file = getDotIdeaPath(path).resolve(iconName)
+
+      val fileInfo = file.basicAttributesIfExists() ?: return null
+      val timestamp = fileInfo.lastModifiedTime().toMillis()
+
+      val recolor = isDark && !file.nameWithoutExtension.endsWith("_dark")
+      var iconWrapper = projectIcons[path]
+      if (iconWrapper != null && iconWrapper.timestamp == timestamp) {
+        return iconWrapper.icon
+      }
+
+      try {
+        var icon = createIcon(file) ?: return null
+        if (recolor) {
+          icon = IconLoader.getDarkIcon(icon, true)
+        }
+
+        iconWrapper = MyIcon(icon, timestamp)
+
+        projectIcons[path] = iconWrapper
+        return iconWrapper.icon
+      }
+      catch (e: Exception) {
+        LOG.error(e)
+      }
+      return null
+    }
   }
 
-  private val projectIcons = HashMap<String, MyIcon>()
-
-  fun getProjectIcon(path: @SystemIndependent String, isDark: Boolean, generateFromName: Boolean = false): Icon {
-    val icon = projectIcons.get(path)
+  fun getProjectIcon(path: @SystemIndependent String, generateFromName: Boolean = false): Icon {
+    val icon = projectIcons[path]
     if (icon != null) {
       return icon.icon
     }
     if (!RecentProjectsManagerBase.isFileSystemPath(path)) {
-      return EmptyIcon.ICON_16
+      return EmptyIcon.create(projectIconSize())
     }
-    return IconDeferrer.getInstance().defer(EmptyIcon.ICON_16, Pair(path, isDark)) {
-      val calculateIcon = calculateIcon(it.first, it.second)
+    return IconDeferrer.getInstance().deferAutoUpdatable(EmptyIcon.create(projectIconSize()), Pair(path, false)) {
+      val calculateIcon = calculateIcon(path = it.first, isDark = it.second)
       if (calculateIcon == null && generateFromName) {
-        val name = RecentProjectsManagerBase.instanceEx.getProjectName(path)
-        AvatarUtils.createRoundRectIcon(AvatarUtils.generateColoredAvatar(name, name, ProjectIconPalette), 20)
+        generateProjectIcon(path)
       }
       else calculateIcon
     }
   }
 
   fun getProjectOrAppIcon(path: @SystemIndependent String): Icon {
-    return getProjectIcon(path, StartupUiUtil.isUnderDarcula())
-  }
-
-  private fun calculateIcon(path: @SystemIndependent String, isDark: Boolean): Icon? {
-    var file = Paths.get(path, ".idea", if (isDark) "icon_dark.png" else "icon.png")
-    var recolor = false
-    if (isDark && !file.exists()) {
-      file = Paths.get(path, ".idea", "icon.png")
-      recolor = true
-    }
-
-    val fileInfo = file.basicAttributesIfExists() ?: return null
-    val timestamp = fileInfo.lastModifiedTime().toMillis()
-
-    var iconWrapper = projectIcons.get(path)
-    if (iconWrapper != null && iconWrapper.timestamp == timestamp) {
-      return iconWrapper.icon
-    }
-
-    try {
-      var icon = createIcon(file) ?: return null
-      if (recolor) {
-        icon = IconLoader.getDarkIcon(icon, true)
-      }
-
-      iconWrapper = MyIcon(icon, timestamp)
-
-      projectIcons.put(path, iconWrapper)
-      return iconWrapper.icon
-    }
-    catch (e: Exception) {
-      LOG.error(e)
-    }
-    return null
+    return getProjectIcon(path)
   }
 }
 

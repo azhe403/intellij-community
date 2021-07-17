@@ -1,4 +1,4 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python;
 
 import com.google.common.collect.ImmutableList;
@@ -16,9 +16,7 @@ import org.jetbrains.annotations.Nullable;
 import java.util.Collections;
 import java.util.List;
 
-/**
- * @author yole
- */
+
 public class PyTypeTest extends PyTestCase {
 
   @Override
@@ -2487,7 +2485,7 @@ public class PyTypeTest extends PyTestCase {
 
   // PY-21175
   public void testLazyAttributeInitialization() {
-    doTest("int",
+    doTest("Union[int, Any]",
            "class C:\n" +
            "    def __init__(self):\n" +
            "        self.attr = None\n" +
@@ -3795,7 +3793,7 @@ public class PyTypeTest extends PyTestCase {
     runWithLanguageLevel(
       LanguageLevel.getLatest(),
       () -> {
-        doTest("Optional[int]",
+        doTest("int | None",
                "from typing import TypedDict\n" +
                "class A(TypedDict, total=False):\n" +
                "    x: int\n" +
@@ -3825,7 +3823,7 @@ public class PyTypeTest extends PyTestCase {
     runWithLanguageLevel(
       LanguageLevel.getLatest(),
       () -> {
-        doTest("Union[int, str]",
+        doTest("int | str",
                "from typing import TypedDict\n" +
                "class A(TypedDict, total=False):\n" +
                "    x: int\n" +

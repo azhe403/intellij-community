@@ -1,6 +1,7 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.intellij.build
 
+import org.jetbrains.annotations.NotNull
 import org.jetbrains.intellij.build.impl.ClassVersionChecker
 import org.jetbrains.intellij.build.impl.LayoutBuilder
 import org.jetbrains.intellij.build.impl.projectStructureMapping.ProjectLibraryEntry
@@ -16,7 +17,7 @@ import java.nio.file.Paths
  * @deprecated all modules included into these artifacts are published as proper Maven artifacts to IntelliJ Artifacts Repository (http://www.jetbrains.org/intellij/sdk/docs/reference_guide/intellij_artifacts.html).
  */
 @Deprecated
-class IntelliJCoreArtifactsBuilder {
+final class IntelliJCoreArtifactsBuilder {
   private static final List<String> ANALYSIS_API_MODULES = [
     "intellij.platform.analysis",
     "intellij.platform.boot",
@@ -39,6 +40,7 @@ class IntelliJCoreArtifactsBuilder {
     "intellij.platform.util.text.matching",
     "intellij.platform.util.collections",
     "intellij.platform.util.strings",
+    "intellij.platform.util.xmlDom",
     "intellij.platform.util.diagnostic",
     "intellij.platform.util.classLoader",
     "intellij.xml.analysis",
@@ -101,11 +103,11 @@ class IntelliJCoreArtifactsBuilder {
     }
   }
 
-  void generateProjectStructureMapping(File targetFile) {
+  void generateProjectStructureMapping(@NotNull File targetFile) {
     def mapping = new ProjectStructureMapping()
     processCoreLayout(buildContext.paths.tempDir, mapping, false)
-    mapping.addEntry(new ProjectLibraryEntry("annotations.jar", "jetbrains-annotations-java5", ""))
-    mapping.generateJsonFile(targetFile)
+    mapping.addEntry(new ProjectLibraryEntry("annotations.jar", "jetbrains-annotations-java5", null, 0))
+    mapping.generateJsonFile(targetFile.toPath())
   }
 
   private void processCoreLayout(Path coreArtifactDir, ProjectStructureMapping projectStructureMapping, boolean copyFiles) {
@@ -119,6 +121,7 @@ class IntelliJCoreArtifactsBuilder {
         module("intellij.platform.util.text.matching")
         module("intellij.platform.util.collections")
         module("intellij.platform.util.strings")
+        module("intellij.platform.util.xmlDom")
         module("intellij.platform.util.diagnostic")
         module("intellij.platform.util")
         module("intellij.platform.core")

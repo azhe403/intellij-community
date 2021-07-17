@@ -5,8 +5,11 @@ import com.intellij.codeInsight.template.impl.TemplateManagerImpl
 import com.intellij.codeInsight.template.impl.TemplateState
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.editor.Editor
+import com.intellij.openapi.project.Project
+import com.intellij.openapi.roots.LanguageLevelProjectExtension
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.TextRange
+import com.intellij.pom.java.LanguageLevel
 import com.intellij.refactoring.extractMethod.newImpl.MethodExtractor
 import com.intellij.refactoring.listeners.RefactoringEventData
 import com.intellij.refactoring.listeners.RefactoringEventListener
@@ -58,7 +61,53 @@ class ExtractMethodInplaceTest: LightJavaCodeInsightTestCase() {
     doTest(changedName = "renamed")
   }
 
+  fun testRenamedParametrizedDuplicate(){
+    doTest(changedName = "average")
+  }
+
   fun testStaticMustBePlaced(){
+    doTest()
+  }
+
+  fun testShortenClassReferences(){
+    withLanguageLevel(project, LanguageLevel.JDK_11) {
+      doTest()
+    }
+  }
+
+  fun testThreeDuplicates(){
+    doTest(changedName = "sayHello")
+  }
+
+  fun testParameterGrouping(){
+    doTest()
+  }
+
+  fun testConditionalExitPoint(){
+    doTest()
+  }
+
+  fun testRuntimeCatchMayChangeSemantic1(){
+    try {
+      doTest()
+      fail("RuntimeException may change code semantic")
+    } catch (e: RefactoringErrorHintException) {
+    }
+  }
+
+  fun testRuntimeCatchMayChangeSemantic2(){
+    try {
+      doTest()
+      fail("RuntimeException may change code semantic")
+    } catch (e: RefactoringErrorHintException) {
+    }
+  }
+
+  fun testRuntimeCatchWithLastAssignment(){
+    doTest()
+  }
+
+  fun testSpecificCatch(){
     doTest()
   }
 
@@ -81,6 +130,17 @@ class ExtractMethodInplaceTest: LightJavaCodeInsightTestCase() {
       require(startReceived)
       finishTemplate(template)
       require(doneReceived)
+    }
+  }
+
+  private inline fun withLanguageLevel(project: Project, languageLevel: LanguageLevel, body: () -> Unit) {
+    val extension = LanguageLevelProjectExtension.getInstance(project)
+    val previousLanguageLevel = extension.languageLevel
+    try {
+      extension.languageLevel = languageLevel
+      body()
+    } finally {
+      extension.languageLevel = previousLanguageLevel
     }
   }
 

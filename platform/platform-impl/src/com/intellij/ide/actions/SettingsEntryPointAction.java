@@ -4,7 +4,7 @@ package com.intellij.ide.actions;
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.DataManager;
 import com.intellij.ide.IdeBundle;
-import com.intellij.ide.ui.UISettings;
+import com.intellij.ide.ui.ToolbarSettings;
 import com.intellij.ide.ui.UISettingsListener;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.actionSystem.ex.TooltipDescriptionProvider;
@@ -20,14 +20,13 @@ import com.intellij.openapi.ui.popup.LightweightWindowEvent;
 import com.intellij.openapi.ui.popup.ListPopup;
 import com.intellij.openapi.ui.popup.util.PopupUtil;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.NlsActions;
 import com.intellij.openapi.util.NlsContexts;
-import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.wm.*;
 import com.intellij.openapi.wm.impl.status.widget.StatusBarWidgetsManager;
 import com.intellij.ui.AnActionButton;
 import com.intellij.util.Consumer;
 import com.intellij.util.concurrency.AppExecutorUtil;
-import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -37,7 +36,6 @@ import java.awt.*;
 import java.awt.event.MouseEvent;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -64,10 +62,6 @@ public final class SettingsEntryPointAction extends DumbAwareAction implements R
     presentation.setText("");
     presentation.setDescription(getActionTooltip());
     presentation.setIcon(getActionIcon());
-
-    for (AnAction child : getTemplateActions()) {
-      child.update(e);
-    }
   }
 
   private static AnAction @NotNull [] getTemplateActions() {
@@ -77,30 +71,32 @@ public final class SettingsEntryPointAction extends DumbAwareAction implements R
 
   @NotNull
   private static ListPopup createMainPopup(@NotNull DataContext context, @NotNull Runnable disposeCallback) {
-    DefaultActionGroup group = new DefaultActionGroup();
+    List<AnAction> appActions = new ArrayList<>();
+    List<AnAction> pluginActions = new ArrayList<>();
 
-    List<ActionProvider> providers = new ArrayList<>(ActionProvider.EP_NAME.getExtensionList());
-    ContainerUtil.sort(providers, Comparator.comparingInt(ActionProvider::getOrder));
-
-    for (ActionProvider provider : providers) {
-      Collection<AnAction> actions = provider.getUpdateActions(context);
-      if (!actions.isEmpty()) {
-        for (AnAction action : actions) {
-          Presentation presentation = action.getTemplatePresentation();
-          if (presentation.getClientProperty(ActionProvider.ICON_KEY) == IconState.ApplicationUpdate) {
-            presentation.setIcon(AllIcons.Ide.Notification.IdeUpdate);
-          }
-          else {
-            presentation.setIcon(AllIcons.Ide.Notification.PluginUpdate);
-          }
-          group.add(action);
+    for (ActionProvider provider : ActionProvider.EP_NAME.getExtensionList()) {
+      for (UpdateAction action : provider.getUpdateActions(context)) {
+        Presentation presentation = action.getTemplatePresentation();
+        if (action.isIdeUpdate()) {
+          presentation.setIcon(AllIcons.Ide.Notification.IdeUpdate);
+          appActions.add(action);
         }
-        group.addSeparator();
+        else {
+          presentation.setIcon(AllIcons.Ide.Notification.PluginUpdate);
+          pluginActions.add(action);
+        }
+        action.markAsRead();
       }
     }
 
+    DefaultActionGroup group = new DefaultActionGroup(appActions);
+    group.addAll(pluginActions);
+
     if (group.getChildrenCount() == 0) {
       resetActionIcon();
+    }
+    else {
+      group.addSeparator();
     }
 
     for (AnAction child : getTemplateActions()) {
@@ -139,34 +135,56 @@ public final class SettingsEntryPointAction extends DumbAwareAction implements R
       }, -1);
   }
 
-  private static boolean myShowPlatformUpdateIcon;
-  private static boolean myShowPluginsUpdateIcon;
+  private static boolean ourShowPlatformUpdateIcon;
+  private static boolean ourShowPluginsUpdateIcon;
 
-  public static void updateState(IconState state) {
-    if (state == IconState.ApplicationUpdate) {
-      myShowPlatformUpdateIcon = true;
+  public static void updateState() {
+    resetActionIcon();
+
+    loop:
+    for (ActionProvider provider : ActionProvider.EP_NAME.getExtensionList()) {
+      for (UpdateAction action : provider.getUpdateActions(DataContext.EMPTY_CONTEXT)) {
+        if (action.isNewAction()) {
+          if (action.isIdeUpdate()) {
+            ourShowPlatformUpdateIcon = true;
+          }
+          else {
+            ourShowPluginsUpdateIcon = true;
+          }
+          if (ourShowPlatformUpdateIcon && ourShowPluginsUpdateIcon) {
+            break loop;
+          }
+        }
+      }
     }
-    else if (state == IconState.ApplicationComponentUpdate) {
-      myShowPluginsUpdateIcon = true;
-    }
+
     if (isAvailableInStatusBar()) {
       updateWidgets();
     }
   }
 
   private static @NotNull @Nls String getActionTooltip() {
-    return IdeBundle.message("settings.entry.point.tooltip");
+    boolean updates = ourShowPlatformUpdateIcon || ourShowPluginsUpdateIcon;
+    if (!updates) {
+      for (ActionProvider provider : ActionProvider.EP_NAME.getExtensionList()) {
+        if (!provider.getUpdateActions(DataContext.EMPTY_CONTEXT).isEmpty()) {
+          updates = true;
+          break;
+        }
+      }
+    }
+    return IdeBundle.message(updates ? "settings.entry.point.with.updates.tooltip" : "settings.entry.point.tooltip");
   }
 
   private static void resetActionIcon() {
-    myShowPlatformUpdateIcon = myShowPluginsUpdateIcon = false;
+    ourShowPlatformUpdateIcon = ourShowPluginsUpdateIcon = false;
   }
 
   private static @NotNull Icon getActionIcon() {
-    if (myShowPlatformUpdateIcon) {
+    if (ourShowPlatformUpdateIcon) {
       return AllIcons.Ide.Notification.IdeUpdate;
     }
-    if (myShowPluginsUpdateIcon) {
+    if (ourShowPluginsUpdateIcon) {
       return AllIcons.Ide.Notification.PluginUpdate;
     }
     return AllIcons.General.GearPlain;
@@ -196,9 +214,7 @@ public final class SettingsEntryPointAction extends DumbAwareAction implements R
 
   private static boolean isAvailableInStatusBar() {
     initUISettingsListener();
-
-    UISettings settings = UISettings.getInstance();
-    return !settings.getShowMainToolbar() && !settings.getShowToolbarInNavigationBar() && !Registry.is("ide.new.navbar");
+    return ToolbarSettings.Companion.getInstance().showSettingsEntryPointInStatusBar();
   }
 
   private static final String WIDGET_ID = "settingsEntryPointWidget";
@@ -232,11 +248,6 @@ public final class SettingsEntryPointAction extends DumbAwareAction implements R
     @Override
     public boolean canBeEnabledOn(@NotNull StatusBar statusBar) {
       return isAvailableInStatusBar();
-    }
-
-    @Override
-    public boolean isConfigurable() {
-      return false;
     }
   }
 
@@ -298,19 +309,32 @@ public final class SettingsEntryPointAction extends DumbAwareAction implements R
     public void dispose() { }
   }
 
-  public enum IconState {
-    Current, ApplicationUpdate, ApplicationComponentUpdate
-  }
-
   public interface ActionProvider {
     ExtensionPointName<ActionProvider> EP_NAME = new ExtensionPointName<>("com.intellij.settingsEntryPointActionProvider");
 
-    String ICON_KEY = "Update_Type_Icon_Key";
+    @NotNull Collection<UpdateAction> getUpdateActions(@NotNull DataContext context);
+  }
 
-    @NotNull Collection<AnAction> getUpdateActions(@NotNull DataContext context);
+  public static abstract class UpdateAction extends DumbAwareAction {
+    private boolean myNewAction = true;
 
-    default int getOrder() {
-      return 0;
+    protected UpdateAction() {
+    }
+
+    protected UpdateAction(@Nullable @NlsActions.ActionText String text) {
+      super(text);
+    }
+
+    public boolean isIdeUpdate() {
+      return false;
+    }
+
+    public boolean isNewAction() {
+      return myNewAction;
+    }
+
+    public void markAsRead() {
+      myNewAction = false;
     }
   }
 }

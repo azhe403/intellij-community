@@ -1,10 +1,7 @@
 // Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.editor.impl.view;
 
-import com.intellij.openapi.editor.Document;
-import com.intellij.openapi.editor.FoldRegion;
-import com.intellij.openapi.editor.Inlay;
-import com.intellij.openapi.editor.SoftWrap;
+import com.intellij.openapi.editor.*;
 import com.intellij.openapi.editor.ex.FoldingModelEx;
 import com.intellij.openapi.editor.ex.util.EditorUtil;
 import com.intellij.openapi.editor.impl.EditorImpl;
@@ -62,6 +59,7 @@ final class VisualLineFragmentsIterator implements Iterator<VisualLineFragmentsI
   private List<Inlay<?>> myInlays;
   private int myCurrentInlayIndex;
   private float myCurrentX;
+  private float myPrevX;
   private int myCurrentVisualColumn;
   private LineLayout.VisualFragment myDelegate;
   private FoldRegion myFoldRegion;
@@ -187,7 +185,8 @@ final class VisualLineFragmentsIterator implements Iterator<VisualLineFragmentsI
   }
 
   private float getFoldRegionWidthInPixels() {
-    return myView.getFoldRegionLayout(myFoldRegion).getWidth();
+    return myFoldRegion instanceof CustomFoldRegion ? ((CustomFoldRegion)myFoldRegion).getWidthInPixels()
+                                                    : myView.getFoldRegionLayout(myFoldRegion).getWidth();
   }
 
   private int getFoldRegionWidthInColumns() {
@@ -225,12 +224,14 @@ final class VisualLineFragmentsIterator implements Iterator<VisualLineFragmentsI
 
   @Override
   public boolean hasNext() {
-    return mySegmentStartOffset == getCurrentFoldRegionStartOffset() || myFragmentIterator == null || myFragmentIterator.hasNext();
+    return !(myFoldRegion instanceof CustomFoldRegion) &&
+           (mySegmentStartOffset == getCurrentFoldRegionStartOffset() || myFragmentIterator == null || myFragmentIterator.hasNext());
   }
 
   @Override
   public Fragment next() {
     if (!hasNext()) throw new NoSuchElementException();
+    myPrevX = myCurrentX;
     if (mySegmentStartOffset == getCurrentFoldRegionStartOffset()) {
       myDelegate = null;
       myFoldRegion = myRegions[myCurrentFoldRegionIndex];
@@ -288,10 +289,6 @@ final class VisualLineFragmentsIterator implements Iterator<VisualLineFragmentsI
       return myVisualLineStartOffset;
     }
 
-    boolean isCollapsedFoldRegion() {
-      return myFoldRegion != null;
-    }
-
     int getMinLogicalColumn() {
       return myDelegate == null ? myView.offsetToLogicalPosition(getMinOffset()).column : myDelegate.getMinLogicalColumn();
     }
@@ -327,9 +324,7 @@ final class VisualLineFragmentsIterator implements Iterator<VisualLineFragmentsI
     }
 
     float getStartX() {
-      return  myDelegate != null ? myDelegate.getStartX()
-                                 : myCurrentX - (myFoldRegion != null ? getFoldRegionWidthInPixels()
-                                                                      : getCurrentInlay().getWidthInPixels());
+      return  myDelegate != null ? myDelegate.getStartX() : myPrevX;
     }
 
     float getEndX() {

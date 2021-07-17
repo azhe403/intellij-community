@@ -46,7 +46,7 @@ import com.intellij.util.DocumentUtil;
 import com.intellij.util.IncorrectOperationException;
 import com.siyeh.ig.fixes.CreateDefaultBranchFix;
 import com.siyeh.ig.fixes.CreateMissingSwitchBranchesFix;
-import com.siyeh.ipp.interfacetoclass.ConvertInterfaceContainingNotAllowedToClassFix;
+import com.siyeh.ig.fixes.RenameFix;
 import com.siyeh.ipp.modifiers.ChangeModifierIntention;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
@@ -90,6 +90,14 @@ public final class QuickFixFactoryImpl extends QuickFixFactory {
                                                                            boolean fixWholeHierarchy,
                                                                            boolean suggestSuperTypes) {
     return new MethodReturnTypeFix(method, toReturn, fixWholeHierarchy, suggestSuperTypes);
+  }
+
+  @NotNull
+  @Override
+  public LocalQuickFixAndIntentionActionOnPsiElement createAnnotationMethodReturnFix(@NotNull PsiMethod method,
+                                                                                     @NotNull PsiType toReturn,
+                                                                                     boolean fromDefaultValue) {
+    return new AnnotationMethodReturnTypeFix(method, toReturn, fromDefaultValue);
   }
 
   @NotNull
@@ -261,6 +269,12 @@ public final class QuickFixFactoryImpl extends QuickFixFactory {
 
   @NotNull
   @Override
+  public IntentionAction createNavigateToDuplicateElementFix(@NotNull NavigatablePsiElement element) {
+    return new NavigateToDuplicateElementFix(element);
+  }
+
+  @NotNull
+  @Override
   public IntentionAction createConvertToStringLiteralAction() {
     return new ConvertToStringLiteralAction();
   }
@@ -390,6 +404,11 @@ public final class QuickFixFactoryImpl extends QuickFixFactory {
   @Override
   public IntentionAction createRenameFileFix(@NotNull String newName) {
     return new RenameFileFix(newName);
+  }
+
+  @Override
+  public @NotNull LocalQuickFix createRenameFix() {
+    return new RenameFix();
   }
 
   @NotNull
@@ -599,6 +618,12 @@ public final class QuickFixFactoryImpl extends QuickFixFactory {
   @Override
   public IntentionAction createMakeVarargParameterLastFix(@NotNull PsiParameter parameter) {
     return new MakeVarargParameterLastFix(parameter);
+  }
+
+  @NotNull
+  @Override
+  public IntentionAction createMakeReceiverParameterFirstFix(@NotNull PsiReceiverParameter parameter) {
+    return new MakeReceiverParameterFirstFix(parameter);
   }
 
   @NotNull
@@ -1002,12 +1027,28 @@ public final class QuickFixFactoryImpl extends QuickFixFactory {
   }
 
   @Override
-  public @NotNull IntentionAction createConvertInterfaceContainingNotAllowedToClassFix(@NotNull PsiClass aClass) {
-    return new ConvertInterfaceContainingNotAllowedToClassFix(aClass);
+  public @NotNull IntentionAction createConvertInterfaceToClassFix(@NotNull PsiClass aClass) {
+    return new ConvertInterfaceToClassFix(aClass);
   }
 
   @Override
-  public @NotNull IntentionAction createUnwrapArrayInitializerMemberValueAction(@NotNull PsiArrayInitializerMemberValue arrayValue) {
-    return new UnwrapArrayInitializerMemberValueAction(arrayValue);
+  @Nullable
+  public IntentionAction createUnwrapArrayInitializerMemberValueAction(@NotNull PsiArrayInitializerMemberValue arrayValue) {
+    return UnwrapArrayInitializerMemberValueAction.createFix(arrayValue);
+  }
+
+  @Override
+  public @NotNull IntentionAction createIntroduceVariableAction(@NotNull PsiExpression expression) {
+    return new IntroduceVariableErrorFixAction(expression);
+  }
+
+  @Override
+  public @NotNull IntentionAction createInsertReturnFix(@NotNull PsiExpression expression) {
+    return new ConvertExpressionToReturnFix(expression);
+  }
+
+  @Override
+  public @NotNull IntentionAction createIterateFix(@NotNull PsiExpression expression) {
+    return new IterateOverIterableIntention(expression);
   }
 }

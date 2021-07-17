@@ -6,11 +6,8 @@ import com.intellij.codeInspection.util.IntentionName;
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.DataManager;
 import com.intellij.ide.IdeBundle;
-import com.intellij.openapi.actionSystem.ActionManager;
-import com.intellij.openapi.actionSystem.ActionPlaces;
-import com.intellij.openapi.actionSystem.AnAction;
-import com.intellij.openapi.actionSystem.AnActionEvent;
-import com.intellij.openapi.actionSystem.ex.ActionManagerEx;
+import com.intellij.openapi.actionSystem.*;
+import com.intellij.openapi.actionSystem.ex.ActionUtil;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.EditorBundle;
 import com.intellij.openapi.editor.colors.ColorKey;
@@ -33,7 +30,10 @@ import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
-import org.jetbrains.annotations.*;
+import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.event.HyperlinkEvent;
@@ -58,7 +58,6 @@ public class EditorNotificationPanel extends JPanel implements IntentionActionPr
   private Project myProject;
   private final @NotNull Supplier<? extends EditorColorsScheme> mySchemeSupplier;
 
-  @ApiStatus.Internal
   protected static final Supplier<EditorColorsScheme> GLOBAL_SCHEME_SUPPLIER = () -> EditorColorsManager.getInstance().getGlobalScheme();
 
   public EditorNotificationPanel(@Nullable Color backgroundColor) {
@@ -89,12 +88,10 @@ public class EditorNotificationPanel extends JPanel implements IntentionActionPr
    *
    * @param fileEditor is editor instance. null is equivalent to default constructor.
    */
-  @ApiStatus.Internal
   public EditorNotificationPanel(@Nullable FileEditor fileEditor) {
     this(fileEditorSupplier(fileEditor));
   }
 
-  @ApiStatus.Internal
   public EditorNotificationPanel(@NotNull Supplier<? extends EditorColorsScheme> schemeSupplier) {
     super(new BorderLayout());
 
@@ -212,17 +209,11 @@ public class EditorNotificationPanel extends JPanel implements IntentionActionPr
   }
 
   protected void executeAction(@NonNls String actionId) {
-    final AnAction action = ActionManager.getInstance().getAction(actionId);
-    final AnActionEvent event = AnActionEvent.createFromAnAction(action, null, getActionPlace(),
-                                                                 DataManager.getInstance().getDataContext(this));
-    action.beforeActionPerformedUpdate(event);
-    action.update(event);
-
-    if (event.getPresentation().isEnabled() && event.getPresentation().isVisible()) {
-      ActionManagerEx actionManager = ActionManagerEx.getInstanceEx();
-      actionManager.fireBeforeActionPerformed(action, event.getDataContext(), event);
-      action.actionPerformed(event);
-      actionManager.fireAfterActionPerformed(action, event.getDataContext(), event);
+    AnAction action = ActionManager.getInstance().getAction(actionId);
+    DataContext dataContext = DataManager.getInstance().getDataContext(this);
+    AnActionEvent event = AnActionEvent.createFromAnAction(action, null, getActionPlace(), dataContext);
+    if (ActionUtil.lastUpdateAndCheckDumb(action, event, true)) {
+      ActionUtil.performActionDumbAwareWithCallbacks(action, event);
     }
   }
 

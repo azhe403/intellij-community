@@ -1,22 +1,20 @@
 <html>
 <body>
-Reports method calls to parameterized collections, where actual argument type does not
+Reports method calls on parameterized collections, where the actual argument type does not
 correspond to the collection's elements type.
-<!-- tooltip end -->
-<p>For example if you have the following code:</p>
+<p><b>Example:</b></p>
 <pre>
   List&lt;Integer&gt; list = getListOfElements();
-  list.remove("");
+  list.remove(""); // remove is highlighted
 </pre>
+<!-- tooltip end -->
 <p>
-  the call to <code>remove()</code> will be highlighted.
-<p>
-  The option '<b>Report suspicious but possibly correct method calls</b>' makes it possible to ignore
-  potentially correct code, like this:
+  In the inspection settings, you can disable warnings for potentially correct code like the following:
 </p>
 <pre>
-  Number number = new Integer(0);
-  list.remove(number));
+  public boolean accept(Map&lt;Integer, String&gt; map, Object key) {
+    return map.containsKey(key);
+  }
 </pre>
 </body>
 </html>

@@ -1,15 +1,16 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.coverage;
 
 import com.intellij.java.coverage.JavaCoverageBundle;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.module.Module;
+import com.intellij.openapi.progress.ProgressIndicatorProvider;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.TestSourcesFilter;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
 import com.intellij.psi.search.GlobalSearchScope;
+import com.intellij.rt.coverage.data.ProjectData;
 import com.intellij.util.containers.CollectionFactory;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
@@ -19,6 +20,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 /**
  * @author Roman.Chernyatchik
@@ -38,7 +40,7 @@ public final class JavaCoverageAnnotator extends BaseCoverageAnnotator {
   }
 
   public static JavaCoverageAnnotator getInstance(final Project project) {
-    return ServiceManager.getService(project, JavaCoverageAnnotator.class);
+    return project.getService(JavaCoverageAnnotator.class);
   }
 
   @Override
@@ -134,10 +136,13 @@ public final class JavaCoverageAnnotator extends BaseCoverageAnnotator {
           myClassCoverageInfos.put(classQualifiedName, classCoverageInfo);
         }
       };
+      final long startNs = System.nanoTime();
       for (PsiPackage aPackage : packages) {
+        ProgressIndicatorProvider.checkCanceled();
         new PackageAnnotator(aPackage).annotate(suite, annotator);
       }
       for (final PsiClass aClass : classes) {
+        ProgressIndicatorProvider.checkCanceled();
         Runnable runnable = () -> {
           final String packageName = ((PsiClassOwner)aClass.getContainingFile()).getPackageName();
           final PsiPackage psiPackage = JavaPsiFacade.getInstance(project).findPackage(packageName);
@@ -147,6 +152,12 @@ public final class JavaCoverageAnnotator extends BaseCoverageAnnotator {
         ApplicationManager.getApplication().runReadAction(runnable);
       }
       dataManager.triggerPresentationUpdate();
+
+      final long endNs = System.nanoTime();
+      final int annotatedClasses = myClassCoverageInfos.size();
+      final ProjectData data = suite.getCoverageData();
+      final int loadedClasses = data == null ? 0 : data.getClassesNumber();
+      CoverageLogger.logReportBuilding(project, TimeUnit.NANOSECONDS.toMillis(endNs - startNs), annotatedClasses, loadedClasses);
     };
   }
 

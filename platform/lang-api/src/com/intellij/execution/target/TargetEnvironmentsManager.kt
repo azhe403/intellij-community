@@ -1,25 +1,45 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.target
 
-import com.intellij.openapi.components.*
+import com.intellij.openapi.components.BaseState
+import com.intellij.openapi.components.PersistentStateComponent
+import com.intellij.openapi.components.State
+import com.intellij.openapi.components.Storage
 import com.intellij.openapi.project.Project
 import com.intellij.util.text.UniqueNameGenerator
+import com.intellij.util.xmlb.annotations.Attribute
 import com.intellij.util.xmlb.annotations.Property
 import com.intellij.util.xmlb.annotations.Tag
 import com.intellij.util.xmlb.annotations.XCollection
+import java.util.*
 
 @State(name = "RemoteTargetsManager", storages = [Storage("remote-targets.xml")])
 class TargetEnvironmentsManager : PersistentStateComponent<TargetEnvironmentsManager.TargetsListState> {
   companion object {
     @JvmStatic
     fun getInstance(project: Project): TargetEnvironmentsManager =
-      ServiceManager.getService(project, TargetEnvironmentsManager::class.java)
+      project.getService(TargetEnvironmentsManager::class.java)
   }
+
+  /**
+   * UUID of the target which is set as the project default or `null` if the project default target is the local machine.
+   */
+  private var projectDefaultTargetUuid: String? = null
+
+  /**
+   * The project default target or `null` if the project default target is the local machine.
+   */
+  var defaultTarget: TargetEnvironmentConfiguration?
+    get() = projectDefaultTargetUuid?.let { uuid -> targets.resolvedConfigs().firstOrNull { it.uuid == uuid } }
+    set(value) {
+      projectDefaultTargetUuid = value?.uuid
+    }
 
   val targets: ContributedConfigurationsList<TargetEnvironmentConfiguration, TargetEnvironmentType<*>> = TargetsList()
 
   override fun getState(): TargetsListState {
     val result = TargetsListState()
+    result.projectDefaultTargetUuid = projectDefaultTargetUuid
     for (next in this.targets.state.configs) {
       result.targets.add(next as OneTargetState)
     }
@@ -27,6 +47,7 @@ class TargetEnvironmentsManager : PersistentStateComponent<TargetEnvironmentsMan
   }
 
   override fun loadState(state: TargetsListState) {
+    projectDefaultTargetUuid = state.projectDefaultTargetUuid
     targets.loadState(state.targets)
   }
 
@@ -54,12 +75,14 @@ class TargetEnvironmentsManager : PersistentStateComponent<TargetEnvironmentsMan
     override fun toBaseState(config: TargetEnvironmentConfiguration): OneTargetState =
       OneTargetState().also {
         it.loadFromConfiguration(config)
+        it.uuid = config.uuid
         it.runtimes = config.runtimes.state.configs
       }
 
     override fun fromOneState(state: ContributedStateBase): TargetEnvironmentConfiguration? {
       val result = super.fromOneState(state)
       if (result != null && state is OneTargetState) {
+        result.uuid = state.uuid ?: UUID.randomUUID().toString()
         result.runtimes.loadState(state.runtimes)
       }
       return result
@@ -67,12 +90,17 @@ class TargetEnvironmentsManager : PersistentStateComponent<TargetEnvironmentsMan
   }
 
   class TargetsListState : BaseState() {
+    var projectDefaultTargetUuid by string()
+
     @get: XCollection(style = XCollection.Style.v2)
     var targets by list<OneTargetState>()
   }
 
   @Tag("target")
   class OneTargetState : ContributedConfigurationsList.ContributedStateBase() {
+    @get:Attribute("uuid")
+    var uuid by string()
+
     @get: XCollection(style = XCollection.Style.v2)
     @get: Property(surroundWithTag = false)
     var runtimes by list<ContributedConfigurationsList.ContributedStateBase>()

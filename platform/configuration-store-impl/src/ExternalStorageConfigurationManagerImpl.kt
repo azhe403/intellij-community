@@ -1,6 +1,7 @@
 // Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.project
 
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.WriteAction
 import com.intellij.openapi.components.BaseState
 import com.intellij.openapi.components.SimplePersistentStateComponent
@@ -27,26 +28,26 @@ internal class ExternalStorageConfigurationManagerImpl(private val project: Proj
    */
   override fun setEnabled(value: Boolean) {
     state.enabled = value
-    updateEntitySource()
+    if (project.isDefault) return
+    val app = ApplicationManager.getApplication()
+    app.invokeAndWait { app.runWriteAction(::updateEntitySource) }
   }
 
   override fun loadState(state: ExternalStorageConfiguration) {
     super.loadState(state)
-    updateEntitySource()
+    if (project.isDefault) return
+    val app = ApplicationManager.getApplication()
+    app.invokeLater { app.runWriteAction(::updateEntitySource) }
   }
 
   private fun updateEntitySource() {
     val value = state.enabled
-    if (!project.isDefault && WorkspaceModel.isEnabled) {
-      WriteAction.runAndWait<RuntimeException> {
-        WorkspaceModel.getInstance(project).updateProjectModel { updater ->
-          val entitiesMap = updater.entitiesBySource { it is JpsImportedEntitySource && it.storedExternally != value }
-          entitiesMap.values.asSequence().flatMap { it.values.asSequence().flatMap { entities -> entities.asSequence() } }.forEach { entity ->
-            val source = entity.entitySource
-            if (source is JpsImportedEntitySource) {
-              updater.changeSource(entity, JpsImportedEntitySource(source.internalFile, source.externalSystemId, value))
-            }
-          }
+    WorkspaceModel.getInstance(project).updateProjectModel { updater ->
+      val entitiesMap = updater.entitiesBySource { it is JpsImportedEntitySource && it.storedExternally != value }
+      entitiesMap.values.asSequence().flatMap { it.values.asSequence().flatMap { entities -> entities.asSequence() } }.forEach { entity ->
+        val source = entity.entitySource
+        if (source is JpsImportedEntitySource) {
+          updater.changeSource(entity, JpsImportedEntitySource(source.internalFile, source.externalSystemId, value))
         }
       }
     }

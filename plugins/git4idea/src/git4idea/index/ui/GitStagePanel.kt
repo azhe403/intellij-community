@@ -1,7 +1,8 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.index.ui
 
 import com.intellij.dvcs.ui.RepositoryChangesBrowserNode
+import com.intellij.icons.AllIcons
 import com.intellij.ide.DataManager
 import com.intellij.ide.util.PropertiesComponent
 import com.intellij.openapi.Disposable
@@ -15,11 +16,8 @@ import com.intellij.openapi.ui.Splitter
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vcs.AbstractVcsHelper
 import com.intellij.openapi.vcs.VcsBundle
-import com.intellij.openapi.vcs.changes.ChangeListListener
-import com.intellij.openapi.vcs.changes.ChangeListManagerImpl
+import com.intellij.openapi.vcs.changes.*
 import com.intellij.openapi.vcs.changes.ChangesViewManager.createTextStatusFactory
-import com.intellij.openapi.vcs.changes.EditorTabPreview
-import com.intellij.openapi.vcs.changes.InclusionListener
 import com.intellij.openapi.vcs.changes.ui.*
 import com.intellij.openapi.vcs.changes.ui.ChangesGroupingSupport.Companion.REPOSITORY_GROUPING
 import com.intellij.openapi.vcs.checkin.CheckinHandler
@@ -48,6 +46,8 @@ import com.intellij.vcs.log.runInEdt
 import com.intellij.vcs.log.runInEdtAsync
 import com.intellij.vcs.log.ui.frame.ProgressStripe
 import git4idea.GitVcs
+import git4idea.conflicts.GitConflictsUtil.canShowMergeWindow
+import git4idea.conflicts.GitConflictsUtil.showMergeWindow
 import git4idea.conflicts.GitMergeHandler
 import git4idea.i18n.GitBundle.message
 import git4idea.index.GitStageCommitWorkflow
@@ -59,16 +59,16 @@ import git4idea.index.actions.GitResetOperation
 import git4idea.index.actions.StagingAreaOperation
 import git4idea.index.actions.performStageOperation
 import git4idea.merge.GitDefaultMergeDialogCustomizer
-import git4idea.merge.GitMergeUtil
+import git4idea.repo.GitConflict
 import git4idea.repo.GitRepository
 import git4idea.repo.GitRepositoryManager
-import git4idea.status.GitChangeProvider
+import git4idea.status.GitRefreshListener
+import org.jetbrains.annotations.NonNls
 import java.awt.BorderLayout
 import java.beans.PropertyChangeListener
 import java.util.*
 import java.util.stream.Collectors
 import javax.swing.JPanel
-import org.jetbrains.annotations.NonNls
 
 internal class GitStagePanel(private val tracker: GitStageTracker,
                              isVertical: Boolean,
@@ -96,6 +96,8 @@ internal class GitStagePanel(private val tracker: GitStageTracker,
 
   private var hasPendingUpdates = false
 
+  internal val commitMessage get() = commitPanel.commitMessage
+
   init {
     _tree = MyChangesTree(project)
 
@@ -106,10 +108,10 @@ internal class GitStagePanel(private val tracker: GitStageTracker,
     }
     commitPanel.commitActionsPanel.setupShortcuts(this, this)
     commitPanel.addEditedCommitListener(_tree::editedCommitChanged, this)
-    commitPanel.includedRoots = _tree.getIncludedRoots()
+    commitPanel.setIncludedRoots(_tree.getIncludedRoots())
     _tree.addIncludedRootsListener(object : IncludedRootsListener {
       override fun includedRootsChanged() {
-        commitPanel.includedRoots = _tree.getIncludedRoots()
+        commitPanel.setIncludedRoots(_tree.getIncludedRoots())
       }
     }, this)
     commitWorkflowHandler = GitStageCommitWorkflowHandler(GitStageCommitWorkflow(project), commitPanel)
@@ -121,10 +123,10 @@ internal class GitStagePanel(private val tracker: GitStageTracker,
     toolbarGroup.add(ActionManager.getInstance().getAction(ChangesTree.GROUP_BY_ACTION_GROUP))
     toolbarGroup.addSeparator()
     toolbarGroup.addAll(TreeActionsToolbarPanel.createTreeActions(tree))
-    toolbar = ActionManager.getInstance().createActionToolbar(ActionPlaces.UNKNOWN, toolbarGroup, true)
+    toolbar = ActionManager.getInstance().createActionToolbar(GIT_STAGE_PANEL_PLACE, toolbarGroup, true)
     toolbar.setTargetComponent(tree)
 
-    PopupHandler.installPopupHandler(tree, "Git.Stage.Tree.Menu", "Git.Stage.Tree.Menu")
+    PopupHandler.installPopupMenu(tree, "Git.Stage.Tree.Menu", "Git.Stage.Tree.Menu")
 
     val statusPanel = CommitStatusPanel(commitPanel).apply {
       border = empty(0, 1, 0, 6)
@@ -155,11 +157,11 @@ internal class GitStagePanel(private val tracker: GitStageTracker,
 
     tracker.addListener(MyGitStageTrackerListener(), this)
     val busConnection = project.messageBus.connect(this)
-    busConnection.subscribe(GitChangeProvider.TOPIC, MyGitChangeProviderListener())
+    busConnection.subscribe(GitRefreshListener.TOPIC, MyGitChangeProviderListener())
     busConnection.subscribe(ChangeListListener.TOPIC, MyChangeListListener())
     commitWorkflowHandler.workflow.addListener(MyCommitWorkflowListener(), this)
 
-    if (GitVcs.getInstance(project).changeProvider?.isRefreshInProgress == true) {
+    if (isRefreshInProgress()) {
       tree.setEmptyText(message("stage.loading.status"))
       progressStripe.startLoadingImmediately()
     }
@@ -168,6 +170,14 @@ internal class GitStagePanel(private val tracker: GitStageTracker,
     Disposer.register(disposableParent, this)
 
     runInEdtAsync(this) { update() }
+  }
+
+  private fun isRefreshInProgress(): Boolean {
+    if (GitVcs.getInstance(project).changeProvider!!.isRefreshInProgress) return true
+    return GitRepositoryManager.getInstance(project).repositories.any {
+      it.untrackedFilesHolder.isInUpdateMode ||
+      it.ignoredFilesHolder.isInUpdateMode()
+    }
   }
 
   private fun updateChangesStatusPanel() {
@@ -184,12 +194,13 @@ internal class GitStagePanel(private val tracker: GitStageTracker,
       return
     }
     tree.rebuildTree()
-    commitPanel.state = state
+    commitPanel.setTrackerState(state)
     commitWorkflowHandler.state = state
   }
 
   override fun getData(dataId: String): Any? {
     if (QuickActionProvider.KEY.`is`(dataId)) return toolbar
+    if (EditorTabDiffPreviewManager.EDITOR_TAB_DIFF_PREVIEW.`is`(dataId)) return editorTabPreview
     return null
   }
 
@@ -207,7 +218,7 @@ internal class GitStagePanel(private val tracker: GitStageTracker,
     if (!force && (isInEditor == (editorTabPreview != null))) return
 
     if (diffPreviewProcessor != null) Disposer.dispose(diffPreviewProcessor!!)
-    diffPreviewProcessor = GitStageDiffPreview(project, _tree, tracker, this)
+    diffPreviewProcessor = GitStageDiffPreview(project, _tree, tracker, isInEditor, this)
     diffPreviewProcessor!!.getToolbarWrapper().setVerticalSizeReferent(toolbar.component)
 
     if (isInEditor) {
@@ -218,10 +229,6 @@ internal class GitStagePanel(private val tracker: GitStageTracker,
       editorTabPreview = null
       commitDiffSplitter.secondComponent = diffPreviewProcessor!!.component
     }
-  }
-
-  internal fun setCommitMessage(commitMessage: String) {
-    commitPanel.commitMessage.setCommitMessage(commitMessage)
   }
 
   override fun dispose() {
@@ -237,6 +244,8 @@ internal class GitStagePanel(private val tracker: GitStageTracker,
     private val includedRootsListeners = EventDispatcher.create(IncludedRootsListener::class.java)
 
     init {
+      isShowCheckboxes = true
+
       setInclusionModel(GitStageRootInclusionModel(project, tracker, this@GitStagePanel))
       groupingSupport.addPropertyChangeListener(PropertyChangeListener {
         includedRootsListeners.multicaster.includedRootsChanged()
@@ -304,8 +313,15 @@ internal class GitStagePanel(private val tracker: GitStageTracker,
       AbstractVcsHelper.getInstance(project).showMergeDialog(conflictedFiles)
     }
 
+    override fun createHoverIcon(node: ChangesBrowserGitFileStatusNode): HoverIcon? {
+      val conflict = node.conflict ?: return null
+      val mergeHandler = createMergeHandler(project)
+      if (!canShowMergeWindow(project, mergeHandler, conflict)) return null
+      return GitStageMergeHoverIcon(mergeHandler, conflict)
+    }
+
     fun getIncludedRoots(): Collection<VirtualFile> {
-      if (!isInclusionEnabled()) return state.rootStates.keys
+      if (!isInclusionEnabled()) return state.allRoots
 
       return inclusionModel.getInclusion().mapNotNull { (it as? GitRepository)?.root }
     }
@@ -324,15 +340,13 @@ internal class GitStagePanel(private val tracker: GitStageTracker,
       return isInclusionEnabled() && node is RepositoryChangesBrowserNode && isUnderKind(node, NodeKind.STAGED)
     }
 
-    override fun isInclusionVisible(node: ChangesBrowserNode<*>): Boolean {
-      return isInclusionEnabled() && node is RepositoryChangesBrowserNode && isUnderKind(node, NodeKind.STAGED)
-    }
+    override fun isInclusionVisible(node: ChangesBrowserNode<*>): Boolean = isInclusionEnabled(node)
 
-    override fun getIncludableUserObjects(treeModelData: VcsTreeModelData): MutableList<Any> {
+    override fun getIncludableUserObjects(treeModelData: VcsTreeModelData): List<Any> {
       return treeModelData
         .rawNodesStream()
-        .filter { node: ChangesBrowserNode<*>? -> isIncludable(node!!) }
-        .map { node: ChangesBrowserNode<*> -> node.userObject }
+        .filter { node -> isIncludable(node) }
+        .map { node -> node.userObject }
         .collect(Collectors.toList())
     }
 
@@ -341,7 +355,7 @@ internal class GitStagePanel(private val tracker: GitStageTracker,
     }
 
     private fun isUnderKind(node: ChangesBrowserNode<*>, nodeKind: NodeKind): Boolean {
-      val nodePath = node.path?.takeIf { it.isNotEmpty() } ?: return false
+      val nodePath = node.path ?: return false
       return (nodePath.find { it is MyKindNode } as? MyKindNode)?.kind == nodeKind
     }
 
@@ -357,9 +371,32 @@ internal class GitStagePanel(private val tracker: GitStageTracker,
       installGroupingSupport(this, result, GROUPING_PROPERTY_NAME, *DEFAULT_GROUPING_KEYS + REPOSITORY_GROUPING)
       return result
     }
+
+    private inner class GitStageMergeHoverIcon(private val handler: GitMergeHandler, private val conflict: GitConflict) :
+      HoverIcon(AllIcons.Vcs.Merge, message("changes.view.merge.action.text")) {
+
+      override fun invokeAction(node: ChangesBrowserNode<*>) {
+        showMergeWindow(project, handler, listOf(conflict))
+      }
+
+      override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (javaClass != other?.javaClass) return false
+
+        other as GitStageMergeHoverIcon
+
+        if (conflict != other.conflict) return false
+
+        return true
+      }
+
+      override fun hashCode(): Int {
+        return conflict.hashCode()
+      }
+    }
   }
 
-  interface IncludedRootsListener: EventListener {
+  interface IncludedRootsListener : EventListener {
     fun includedRootsChanged()
   }
 
@@ -369,22 +406,29 @@ internal class GitStagePanel(private val tracker: GitStageTracker,
     }
   }
 
-  private inner class MyGitChangeProviderListener : GitChangeProvider.ChangeProviderListener {
+  private inner class MyGitChangeProviderListener : GitRefreshListener {
     override fun progressStarted() {
       runInEdt(this@GitStagePanel) {
-        tree.setEmptyText(message("stage.loading.status"))
-        progressStripe.startLoading()
+        updateProgressState()
       }
     }
 
     override fun progressStopped() {
       runInEdt(this@GitStagePanel) {
+        updateProgressState()
+      }
+    }
+
+    private fun updateProgressState() {
+      if (isRefreshInProgress()) {
+        tree.setEmptyText(message("stage.loading.status"))
+        progressStripe.startLoading()
+      }
+      else {
         progressStripe.stopLoading()
         tree.setEmptyText("")
       }
     }
-
-    override fun repositoryUpdated(repository: GitRepository) = Unit
   }
 
   private inner class MyChangeListListener : ChangeListListener {
@@ -412,13 +456,8 @@ internal class GitStagePanel(private val tracker: GitStageTracker,
   companion object {
     @NonNls
     private const val GROUPING_PROPERTY_NAME = "GitStage.ChangesTree.GroupingKeys"
+    private const val GIT_STAGE_PANEL_PLACE = "GitStagePanelPlace"
   }
-}
-
-internal fun Project.isReversedRoot(root: VirtualFile): Boolean {
-  return GitRepositoryManager.getInstance(this).getRepositoryForRootQuick(root)?.let { repository ->
-    GitMergeUtil.isReverseRoot(repository)
-  } ?: false
 }
 
 internal fun createMergeHandler(project: Project) = GitMergeHandler(project, GitDefaultMergeDialogCustomizer(project))

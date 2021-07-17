@@ -622,6 +622,7 @@ public class DataFlowInspectionTest extends DataFlowInspectionTestCase {
   public void testVoidIsAlwaysNull() { doTest(); }
   public void testImpossibleType() { doTest(); }
   public void testStringEquality() { doTest(); }
+  public void testStringEqualityNewStringInMethod() { doTest(); }
   public void testAssignmentFieldAliasing() { doTest(); }
   public void testNewBoxedNumberEquality() { doTest(); }
   public void testBoxingIncorrectLiteral() { doTest(); }
@@ -692,4 +693,19 @@ public class DataFlowInspectionTest extends DataFlowInspectionTestCase {
   public void testStringToCharArray() { doTest(); }
   public void testFinalStaticFields() { doTest(); }
   public void testReassignInConstructor() { doTest(); }
+  public void testCollectionViewsSize() { doTest(); }
+  public void testFlushedNullableOnUnknownCall() { doTest(); }
+  public void testBoxedDivisionComparison() { doTest(); }
+  public void testUnknownComparedToNullable() { doTest(); }
+  public void testCastInCatch() { doTest(); }
+  public void testInitArrayInConstructor() { doTest(); }
+  public void testGetterNullityAfterCheck() { doTest(); }
+  public void testInferenceNullityMismatch() { doTestWith(insp -> insp.SUGGEST_NULLABLE_ANNOTATIONS = false); }
+  public void testFieldInInstanceInitializer() { doTest(); }
+  public void testNullableCallWithPrecalculatedValueAndSpecialField() { doTest(); }
+  public void testJoinConstantAndSubtype() { doTest(); }
+  public void testDereferenceInThrowMessage() { doTest(); }
+  public void testArrayInitializerElementRewritten() { doTest(); }
+  public void testFinallyEphemeralNpe() { doTest(); }
+  public void testTypeParameterAsSuperClass() { doTest(); }
 }

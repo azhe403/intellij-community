@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.testFramework;
 
 import com.intellij.concurrency.IdeaForkJoinWorkerThreadFactory;
@@ -28,6 +28,7 @@ import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.startup.StartupManager;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.LineColumn;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.CharsetToolkit;
@@ -141,6 +142,7 @@ public abstract class ParsingTestCase extends UsefulTestCase {
 
     // That's for reparse routines
     myProject.registerService(PomModel.class, new PomModelImpl(myProject));
+    Registry.markAsLoaded();
   }
 
   protected final void registerParserDefinition(@NotNull ParserDefinition definition) {
@@ -211,7 +213,7 @@ public abstract class ParsingTestCase extends UsefulTestCase {
       return extensionArea.getExtensionPoint(name);
     }
     else {
-      return extensionArea.registerPoint(name, extensionClass, getPluginDescriptor());
+      return extensionArea.registerPoint(name, extensionClass, getPluginDescriptor(), false);
     }
   }
 
@@ -509,7 +511,7 @@ public abstract class ParsingTestCase extends UsefulTestCase {
   }
 
   protected static String toParseTreeText(@NotNull PsiElement file,  boolean skipSpaces, boolean printRanges) {
-    return DebugUtil.psiToString(file, skipSpaces, printRanges);
+    return DebugUtil.psiToString(file, !skipSpaces, printRanges);
   }
 
   protected String loadFile(@NotNull @TestDataFile String name) throws IOException {
@@ -530,7 +532,7 @@ public abstract class ParsingTestCase extends UsefulTestCase {
   }
 
   public static void ensureCorrectReparse(@NotNull final PsiFile file) {
-    final String psiToStringDefault = DebugUtil.psiToString(file, false, false);
+    final String psiToStringDefault = DebugUtil.psiToString(file, true, false);
 
     DebugUtil.performPsiModification("ensureCorrectReparse", () -> {
                                        final String fileText = file.getText();
@@ -539,7 +541,7 @@ public abstract class ParsingTestCase extends UsefulTestCase {
                                        diffLog.performActualPsiChange(file);
                                      });
 
-    assertEquals(psiToStringDefault, DebugUtil.psiToString(file, false, false));
+    assertEquals(psiToStringDefault, DebugUtil.psiToString(file, true, false));
   }
 
   public void registerMockInjectedLanguageManager() {

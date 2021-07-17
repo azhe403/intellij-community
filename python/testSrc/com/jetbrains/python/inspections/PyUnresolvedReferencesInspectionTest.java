@@ -1,8 +1,9 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.inspections;
 
 import com.intellij.codeInsight.intention.IntentionAction;
 import com.intellij.openapi.util.JDOMUtil;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
@@ -19,9 +20,7 @@ import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * @author yole
- */
+
 public class PyUnresolvedReferencesInspectionTest extends PyInspectionTestCase {
 
   @Override
@@ -867,6 +866,19 @@ public class PyUnresolvedReferencesInspectionTest extends PyInspectionTestCase {
   // PY-44918
   public void testResolvePathImportToUserFile() {
     doMultiFileTest("resolvePathImportToUserFile.py");
+  }
+
+  // PY-48166
+  public void testDisabledNumpyPyiStubs() {
+    doMultiFileTest();
+  }
+
+  // PY-48166
+  public void testEnabledNumpyPyiStubs() {
+    if (!Registry.is("enable.numpy.pyi.stubs", false)) {
+      Registry.get("enable.numpy.pyi.stubs").setValue(true, getTestRootDisposable());
+    }
+    doMultiFileTest();
   }
 
   @NotNull

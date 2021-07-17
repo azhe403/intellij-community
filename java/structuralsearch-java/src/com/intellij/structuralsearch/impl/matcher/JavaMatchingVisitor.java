@@ -443,6 +443,12 @@ public class JavaMatchingVisitor extends JavaElementVisitor {
     );
   }
 
+  @Override
+  public void visitRecordHeader(PsiRecordHeader recordHeader) {
+    final PsiRecordHeader other = myMatchingVisitor.getElement(PsiRecordHeader.class);
+    myMatchingVisitor.setResult(myMatchingVisitor.matchSequentially(recordHeader.getRecordComponents(), other.getRecordComponents()));
+  }
+
   private boolean matchClasses(PsiClass patternClass, PsiClass matchClass) {
     final PsiClass saveClazz = this.myClazz;
     this.myClazz = matchClass;
@@ -457,7 +463,11 @@ public class JavaMatchingVisitor extends JavaElementVisitor {
       if (templateIsInterface && patternClass.isAnnotationType() && !matchClass.isAnnotationType()) return false;
       if (patternClass.isEnum() && !matchClass.isEnum()) return false;
       if (patternClass instanceof PsiTypeParameter != matchClass instanceof PsiTypeParameter) return false;
+      if (patternClass.isRecord() && !matchClass.isRecord()) return false;
 
+      if (!myMatchingVisitor.match(patternClass.getRecordHeader(), matchClass.getRecordHeader())) {
+        return false;
+      }
       if (!matchInAnyOrder(patternClass.getExtendsList(), matchClass.getExtendsList())) {
         return false;
       }
@@ -1270,16 +1280,17 @@ public class JavaMatchingVisitor extends JavaElementVisitor {
   }
 
   private boolean matchLabelStatement(@NotNull PsiSwitchLabelStatementBase statement1, @NotNull PsiSwitchLabelStatementBase statement2) {
-    final PsiExpressionList values1 = statement1.getCaseValues();
-    final PsiExpressionList values2 = statement2.getCaseValues();
+    final PsiCaseLabelElementList labelElementList1 = statement1.getCaseLabelElementList();
+    final PsiCaseLabelElementList labelElementList2 = statement2.getCaseLabelElementList();
     if (statement1.isDefaultCase() && !statement2.isDefaultCase()) {
       return false;
     }
-    if (values1 == null) {
+    if (labelElementList1 == null) {
       return true;
     }
-    final PsiExpression[] expressions = (values2 == null) ? PsiExpression.EMPTY_ARRAY : values2.getExpressions();
-    if (!myMatchingVisitor.matchInAnyOrder(values1.getExpressions(), expressions)) {
+    final PsiCaseLabelElement[] caseLabelElements =
+      (labelElementList2 == null) ? PsiCaseLabelElement.EMPTY_ARRAY : labelElementList2.getElements();
+    if (!myMatchingVisitor.matchInAnyOrder(labelElementList1.getElements(), caseLabelElements)) {
       return false;
     }
     final PsiElement[] body = getBody(statement1);
@@ -1567,7 +1578,47 @@ public class JavaMatchingVisitor extends JavaElementVisitor {
     final PsiInstanceOfExpression other = getExpression(PsiInstanceOfExpression.class, expression);
     if (other == null) return;
     if (!myMatchingVisitor.setResult(myMatchingVisitor.match(expression.getOperand(), other.getOperand()))) return;
-    myMatchingVisitor.setResult(myMatchingVisitor.match(expression.getCheckType(), other.getCheckType()));
+    if (!myMatchingVisitor.setResult(myMatchingVisitor.match(expression.getCheckType(), other.getCheckType()))) return;
+    final PsiPattern pattern = expression.getPattern();
+    PsiPattern otherPattern = other.getPattern();
+    if (pattern instanceof PsiTypeTestPattern) {
+      final PsiTypeTestPattern typeTestPattern = (PsiTypeTestPattern)pattern;
+      otherPattern = skipParenthesesDown(otherPattern);
+      if (otherPattern instanceof PsiTypeTestPattern) {
+        final PsiTypeTestPattern otherVariable = (PsiTypeTestPattern)otherPattern;
+        myMatchingVisitor.setResult(myMatchingVisitor.matchOptionally(typeTestPattern.getPatternVariable(), otherVariable.getPatternVariable()));
+      }
+      else {
+        myMatchingVisitor.setResult(myMatchingVisitor.allowsAbsenceOfMatch(typeTestPattern.getPatternVariable()));
+      }
+    }
+    else {
+      myMatchingVisitor.setResult(myMatchingVisitor.match(pattern, otherPattern));
+    }
+  }
+
+  private PsiPattern skipParenthesesDown(PsiPattern pattern) {
+    if (!myMatchingVisitor.getMatchContext().getOptions().isLooseMatching()) {
+      return pattern;
+    }
+    while (pattern instanceof PsiParenthesizedPattern) {
+      final PsiParenthesizedPattern parenthesizedPattern = (PsiParenthesizedPattern)pattern;
+      pattern = parenthesizedPattern.getPattern();
+    }
+    return pattern;
+  }
+
+  @Override
+  public void visitParenthesizedPattern(PsiParenthesizedPattern pattern) {
+    final PsiParenthesizedPattern other = myMatchingVisitor.getElement(PsiParenthesizedPattern.class);
+    myMatchingVisitor.setResult(other != null && myMatchingVisitor.match(pattern.getPattern(), other.getPattern()));
+  }
+
+  @Override
+  public void visitTypeTestPattern(PsiTypeTestPattern pattern) {
+    final PsiTypeTestPattern other = myMatchingVisitor.getElement(PsiTypeTestPattern.class);
+    final PsiPatternVariable variable = pattern.getPatternVariable();
+    myMatchingVisitor.setResult(myMatchingVisitor.matchOptionally(variable, other.getPatternVariable()));
   }
 
   @Override

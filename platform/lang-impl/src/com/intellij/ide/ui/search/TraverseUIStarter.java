@@ -169,12 +169,12 @@ public final class TraverseUIStarter implements ApplicationStarter {
       String module = entry.getKey();
       Path output;
       if (module.isEmpty()) {
-        output = outputPath.resolve(SearchableOptionsRegistrar.SEARCHABLE_OPTIONS_XML);
+        output = outputPath.resolve(SearchableOptionsRegistrar.getSearchableOptionsXmlName());
       }
       else {
         Path moduleDir = outputPath.resolve(module);
         Files.deleteIfExists(moduleDir.resolve("classpath.index"));
-        output = moduleDir.resolve("search/" + module + '.' + SearchableOptionsRegistrar.SEARCHABLE_OPTIONS_XML);
+        output = moduleDir.resolve("search/" + module + '.' + SearchableOptionsRegistrar.getSearchableOptionsXmlName());
       }
       JDOMUtil.write(entry.getValue(), output);
     }
@@ -288,7 +288,7 @@ public final class TraverseUIStarter implements ApplicationStarter {
   private static Map<String, PluginId> getActionToPluginId() {
     ActionManagerEx actionManager = ActionManagerEx.getInstanceEx();
     Map<String, PluginId> actionToPluginId = new HashMap<>();
-    for (PluginId id : PluginId.getRegisteredIdList()) {
+    for (PluginId id : PluginId.getRegisteredIds()) {
       for (String action : actionManager.getPluginActions(id)) {
         actionToPluginId.put(action, id);
       }
@@ -314,7 +314,7 @@ public final class TraverseUIStarter implements ApplicationStarter {
     final PluginId id = actionToPluginId.get(actionManager.getId(rootAction));
     if (id != null) {
       final IdeaPluginDescriptor plugin = PluginManagerCore.getPlugin(id);
-      if (plugin != null && !plugin.getName().equals("IDEA CORE")) {
+      if (plugin != null && !plugin.getName().equals(PluginManagerCore.SPECIAL_IDEA_PLUGIN_ID.getIdString())) {
         return PathUtil.getFileName(plugin.getPluginPath().toString());
       }
     }

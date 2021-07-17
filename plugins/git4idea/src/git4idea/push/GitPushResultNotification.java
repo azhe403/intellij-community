@@ -1,12 +1,6 @@
 // Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.push;
 
-import static com.intellij.openapi.util.text.HtmlChunk.raw;
-import static com.intellij.openapi.vcs.update.ActionInfo.UPDATE;
-import static com.intellij.util.containers.ContainerUtil.getFirstItem;
-import static com.intellij.util.containers.ContainerUtil.map;
-import static java.util.Collections.singletonList;
-
 import com.intellij.dvcs.DvcsUtil;
 import com.intellij.notification.Notification;
 import com.intellij.notification.NotificationAction;
@@ -23,8 +17,6 @@ import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.HtmlBuilder;
 import com.intellij.openapi.util.text.HtmlChunk;
-import com.intellij.openapi.vcs.ProjectLevelVcsManager;
-import com.intellij.openapi.vcs.VcsBundle;
 import com.intellij.openapi.vcs.VcsNotifier;
 import com.intellij.openapi.vcs.ex.ProjectLevelVcsManagerEx;
 import com.intellij.openapi.vcs.update.AbstractCommonUpdateAction;
@@ -33,19 +25,27 @@ import com.intellij.openapi.vcs.update.UpdatedFiles;
 import com.intellij.util.concurrency.annotations.RequiresEdt;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.vcs.ViewUpdateInfoNotification;
+import com.intellij.xml.util.XmlStringUtil;
 import git4idea.GitVcs;
 import git4idea.branch.GitBranchUtil;
 import git4idea.i18n.GitBundle;
 import git4idea.repo.GitRepository;
 import git4idea.update.GitUpdateInfoAsLog;
 import git4idea.update.GitUpdateResult;
-import java.util.List;
-import java.util.Map;
-import java.util.function.Supplier;
 import one.util.streamex.EntryStream;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+
+import java.util.List;
+import java.util.Map;
+import java.util.function.Supplier;
+
+import static com.intellij.openapi.util.text.HtmlChunk.raw;
+import static com.intellij.openapi.vcs.update.ActionInfo.UPDATE;
+import static com.intellij.util.containers.ContainerUtil.getFirstItem;
+import static com.intellij.util.containers.ContainerUtil.map;
+import static java.util.Collections.singletonList;
 
 final class GitPushResultNotification extends Notification {
   private static final Logger LOG = Logger.getInstance(GitPushResultNotification.class);
@@ -179,12 +179,7 @@ final class GitPushResultNotification extends Notification {
         && !grouped.errors.isEmpty()
         || !grouped.rejected.isEmpty()
         || !grouped.customRejected.isEmpty()) {
-      notification.addAction(NotificationAction.createSimple(
-        VcsBundle.message("notification.showDetailsInConsole"),
-        () -> {
-          ProjectLevelVcsManager vcsManager = ProjectLevelVcsManager.getInstance(project);
-          vcsManager.showConsole(vcsManager::scrollConsoleToTheEnd);
-        }));
+      notification.addAction(VcsNotifier.getInstance(project).createShowDetailsAction());
     }
 
     return notification;
@@ -306,7 +301,7 @@ final class GitPushResultNotification extends Notification {
         description = GitBundle.message("push.notification.description.rejected.by.remote", sourceBranch, targetBranch);
         break;
       case ERROR:
-        description = result.getError();
+        description = XmlStringUtil.escapeString(result.getError());
         break;
       default:
         LOG.error("Unexpected push result: " + result);

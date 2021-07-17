@@ -1,29 +1,39 @@
 // Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui.jcef;
 
+import com.intellij.ui.JreHiDpiUtil;
 import org.cef.browser.CefBrowser;
-import org.cef.browser.CefBrowserOsrWithHandler;
 import org.cef.handler.CefRenderHandler;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
+import javax.swing.*;
 import java.awt.event.KeyEvent;
+import java.awt.event.MouseEvent;
+import java.awt.event.MouseWheelEvent;
+
+import static com.intellij.ui.paint.PaintUtil.RoundingMode.ROUND;
 
 /**
- * A wrapper over {@link CefBrowser} that forwards everything to {@link CefRenderHandler} so you can render everything
- * and send events back using {@link CefBrowser#sendKeyEvent(KeyEvent)}
- * <p>
+ * A wrapper over {@link CefBrowser} that forwards paint requests and notifications to a custom {@link CefRenderHandler}.
+ * Key and mouse events are to be sent back to the {@link CefBrowser} via the callbacks: {@link CefBrowser#sendKeyEvent(KeyEvent)},
+ * {@link CefBrowser#sendMouseEvent(MouseEvent)}, {@link CefBrowser#sendMouseWheelEvent(MouseWheelEvent)}.
+ * <p></p>
  * Use {@link #loadURL(String)} or {@link #loadHTML(String)} for loading.
- * <p>
- * If you need to render to be done by CEDF, see {@link JBCefBrowser}
+ * <p></p>
+ * For the default {@link CefRenderHandler} use {@link JBCefBrowser#create(JBCefBrowserBuilder)} with
+ * {@link JBCefBrowserBuilder#setOffScreenRendering(boolean)}.
  *
- * @see JBCefBrowser
+ * @see JBCefBrowserBuilder#setOffScreenRendering(boolean)
+ * @see JBCefBrowser#createBuilder
+ * @see JBCefBrowser#getCefBrowser
  */
-public final class JBCefOsrHandlerBrowser extends JBCefBrowserBase {
+public abstract class JBCefOsrHandlerBrowser extends JBCefBrowserBase {
   /**
    * Creates the browser and immediately creates its native peer.
    * <p></p>
    * In order to use {@link JBCefJSQuery} create the browser via {@link #create(String, CefRenderHandler, boolean)} or
-   * {@link #create(String, CefRenderHandler, JBCefClient, boolean, boolean)}.
+   * {@link #create(String, CefRenderHandler, JBCefClient, boolean)}.
    */
   @NotNull
   public static JBCefOsrHandlerBrowser create(@NotNull String url, @NotNull CefRenderHandler renderHandler) {
@@ -42,7 +52,12 @@ public final class JBCefOsrHandlerBrowser extends JBCefBrowserBase {
    */
   @NotNull
   public static JBCefOsrHandlerBrowser create(@NotNull String url, @NotNull CefRenderHandler renderHandler, boolean createImmediately) {
-    return create(url, renderHandler, JBCefApp.getInstance().createClient(), true, createImmediately);
+    return new JBCefOsrHandlerBrowser(null, url, renderHandler, createImmediately) {
+      @Override
+      public @Nullable JComponent getComponent() {
+        return null;
+      }
+    };
   }
 
   /**
@@ -52,7 +67,7 @@ public final class JBCefOsrHandlerBrowser extends JBCefBrowserBase {
    */
   @NotNull
   public static JBCefOsrHandlerBrowser create(@NotNull String url, @NotNull CefRenderHandler renderHandler, @NotNull JBCefClient client) {
-    return create(url, renderHandler, client, false, true);
+    return create(url, renderHandler, client, true);
   }
 
   /**
@@ -67,23 +82,57 @@ public final class JBCefOsrHandlerBrowser extends JBCefBrowserBase {
    * @see CefBrowser#createImmediately()
    */
   @NotNull
-  public static JBCefOsrHandlerBrowser create(@NotNull String url, @NotNull CefRenderHandler renderHandler, @NotNull JBCefClient client, boolean createImmediately) {
-    return create(url, renderHandler, client, false, createImmediately);
-  }
-
-  private static JBCefOsrHandlerBrowser create(@NotNull String url,
-                                               @NotNull CefRenderHandler renderHandler,
-                                               @NotNull JBCefClient client,
-                                               boolean isDefaultClient,
-                                               boolean createImmediately)
+  public static JBCefOsrHandlerBrowser create(@NotNull String url,
+                                              @NotNull CefRenderHandler renderHandler,
+                                              @NotNull JBCefClient client,
+                                              boolean createImmediately)
   {
-    var cefBrowser = new CefBrowserOsrWithHandler(client.getCefClient(), url, null, renderHandler);
-    if (createImmediately) cefBrowser.createImmediately();
-    return new JBCefOsrHandlerBrowser(client, cefBrowser, true, isDefaultClient);
+    return new JBCefOsrHandlerBrowser(client, url, renderHandler, createImmediately) {
+      @Override
+      public @Nullable JComponent getComponent() {
+        return null;
+      }
+    };
   }
 
-  private JBCefOsrHandlerBrowser(@NotNull JBCefClient cefClient,
-                                 @NotNull CefBrowser cefBrowser, boolean newBrowserCreated, boolean isDefaultClient) {
-    super(cefClient, cefBrowser, newBrowserCreated, isDefaultClient);
+  /**
+   * @param client the client or null to provide default client
+   * @param url the url
+   * @param renderHandler the render handler
+   * @param createImmediately whether the native browser should be created immediately
+   */
+  protected JBCefOsrHandlerBrowser(@Nullable JBCefClient client,
+                                   @Nullable String url,
+                                   @NotNull CefRenderHandler renderHandler,
+                                   boolean createImmediately)
+  {
+    super(JBCefBrowser.createBuilder().
+            setClient(client).
+            setUrl(url).
+            setCreateImmediately(createImmediately).
+            setOffScreenRendering(true).
+            setOSRHandlerFactory(new JBCefOSRHandlerFactory() {
+              @Override
+              public @NotNull JComponent createComponent() {
+                return new JComponent() {};
+              }
+              @Override
+              public @NotNull CefRenderHandler createCefRenderHandler(@NotNull JComponent component) {
+                return renderHandler;
+              }
+            }));
+  }
+
+  /**
+   * Returns normal (unscaled) size of the provided scaled size if IDE-managed HiDPI mode is enabled.
+   * In JRE-managed HiDPI mode the method has no effect.
+   * <p></p>
+   * This method should be applied to size values (for instance, font size) previously scaled (explicitly or implicitly)
+   * via {@link com.intellij.ui.scale.JBUIScale#scale(int)}, before the values are used in html (in CSS, for instance).
+   *
+   * @see com.intellij.ui.scale.ScaleType
+   */
+  public static int normalizeScaledSize(int scaledSize) {
+    return JreHiDpiUtil.isJreHiDPIEnabled() ? scaledSize : ROUND.round(scaledSize / JBCefApp.getForceDeviceScaleFactor());
   }
 }

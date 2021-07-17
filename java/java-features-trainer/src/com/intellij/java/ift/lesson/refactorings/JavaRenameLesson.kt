@@ -61,6 +61,8 @@ class JavaRenameLesson
     val newNameExample = "pencil"
 
     prepareSample(sample)
+    showWarningIfInplaceRefactoringsDisabled()
+
     lateinit var startId: TaskContext.TaskId
     task("RenameElement") {
       startId = taskId
@@ -74,13 +76,18 @@ class JavaRenameLesson
       }
     }
 
+    task {
+     stateCheck { TemplateManagerImpl.getInstance(project).getActiveTemplate(editor) != null }
+     restoreByTimer()
+    }
+
     task("NextTemplateVariable") {
       triggers(it)
       text(JavaLessonsBundle.message("java.rename.type.new.name", code(newNameExample), LessonUtil.rawEnter()))
-      restoreAfterStateBecomeFalse {
+      restoreAfterStateBecomeFalse(restoreId = startId) {
         TemplateManagerImpl.getTemplateState(editor) == null
       }
-      test {
+      test(waitEditorToBeReady = false) {
         type(newNameExample)
         actions(it)
       }
@@ -109,7 +116,7 @@ class JavaRenameLesson
           it.className.contains(RenameProcessor::class.simpleName!!)
         }
       }
-      test {
+      test(waitEditorToBeReady = false) {
         ideFrame {
           button(okButtonText).click()
         }

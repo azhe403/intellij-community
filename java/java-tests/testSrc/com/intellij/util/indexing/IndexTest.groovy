@@ -1,8 +1,9 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.indexing
 
 import com.intellij.find.ngrams.TrigramIndex
 import com.intellij.ide.highlighter.JavaFileType
+import com.intellij.ide.plugins.DynamicPluginsTestUtil
 import com.intellij.ide.scratch.ScratchRootType
 import com.intellij.ide.todo.TodoConfiguration
 import com.intellij.java.index.StringIndex
@@ -57,11 +58,7 @@ import com.intellij.psi.impl.file.impl.FileManagerImpl
 import com.intellij.psi.impl.java.JavaFunctionalExpressionIndex
 import com.intellij.psi.impl.java.stubs.index.JavaStubIndexKeys
 import com.intellij.psi.impl.search.JavaNullMethodArgumentIndex
-import com.intellij.psi.impl.source.JavaFileElementType
-import com.intellij.psi.impl.source.PostprocessReformattingAspect
-import com.intellij.psi.impl.source.PsiFileImpl
-import com.intellij.psi.impl.source.PsiFileWithStubSupport
-import com.intellij.psi.impl.source.PsiJavaFileImpl
+import com.intellij.psi.impl.source.*
 import com.intellij.psi.search.*
 import com.intellij.psi.stubs.*
 import com.intellij.psi.util.CachedValue
@@ -98,8 +95,6 @@ import org.jetbrains.plugins.groovy.GroovyLanguage
 
 import java.util.concurrent.CountDownLatch
 
-import static com.intellij.ide.plugins.DynamicPluginsTestUtil.loadExtensionWithText
-
 @SkipSlowTestLocally
 class IndexTest extends JavaCodeInsightFixtureTestCase {
 
@@ -107,9 +102,9 @@ class IndexTest extends JavaCodeInsightFixtureTestCase {
   protected void tuneFixture(JavaModuleFixtureBuilder moduleBuilder) throws Exception {
     if (getName() == "test indexed state for file without content requiring indices") {
       // should add file to test dire as soon as possible
-      String otherRoot = myFixture.getTempDirPath() + "/otherRoot";
-      assertTrue(new File(otherRoot).mkdirs());
-      assertTrue(new File(otherRoot, "intellij.exe").createNewFile());
+      String otherRoot = myFixture.getTempDirPath() + "/otherRoot"
+      assertTrue(new File(otherRoot).mkdirs())
+      assertTrue(new File(otherRoot, "intellij.exe").createNewFile())
       moduleBuilder.addSourceContentRoot(otherRoot)
     }
   }
@@ -930,7 +925,7 @@ class IndexTest extends JavaCodeInsightFixtureTestCase {
     StringIndex index = createIndex(getTestName(false), new EnumeratorStringDescriptor(), true)
 
     try {
-      IndexDebugProperties.IS_UNIT_TEST_MODE = false;
+      IndexDebugProperties.IS_UNIT_TEST_MODE = false
       assertFalse(index.update("qwe/asd", "some_string"))
       def rebuildThrowable = index.getRebuildThrowable()
       assertInstanceOf(rebuildThrowable, StorageException.class)
@@ -938,7 +933,7 @@ class IndexTest extends JavaCodeInsightFixtureTestCase {
       assertInstanceOf(rebuildCause, IncorrectOperationException.class)
     }
     finally {
-      IndexDebugProperties.IS_UNIT_TEST_MODE = true;
+      IndexDebugProperties.IS_UNIT_TEST_MODE = true
       index.dispose()
     }
   }
@@ -1184,9 +1179,9 @@ class IndexTest extends JavaCodeInsightFixtureTestCase {
     VirtualFile src = main.parent
 
     def scope = GlobalSearchScope.allScope(getProject())
-    assertEquals(foo, assertOneElement(FilenameIndex.getVirtualFilesByName(getProject(), "a.java", scope)))
-    assertEquals(main, assertOneElement(FilenameIndex.getVirtualFilesByName(getProject(), "main", scope)))
-    assertEquals(src, assertOneElement(FilenameIndex.getVirtualFilesByName(getProject(), "src", scope)))
+    assertEquals(foo, assertOneElement(FilenameIndex.getVirtualFilesByName("a.java", scope)))
+    assertEquals(main, assertOneElement(FilenameIndex.getVirtualFilesByName( "main", scope)))
+    assertEquals(src, assertOneElement(FilenameIndex.getVirtualFilesByName( "src", scope)))
 
     // content-less indexes has been passed
     // now all directories are indexed
@@ -1262,7 +1257,7 @@ class IndexTest extends JavaCodeInsightFixtureTestCase {
     StringIndex index = createIndex(getTestName(false), new EnumeratorStringDescriptor(), false)
     try {
       def stamp = index.getModificationStamp()
-      index.clear();
+      index.clear()
       assertTrue(stamp != index.getModificationStamp())
     }
     finally {
@@ -1409,8 +1404,8 @@ class IndexTest extends JavaCodeInsightFixtureTestCase {
     }
     def idQuery = CachedValuesManager.getManager(project).createCachedValue {
       indexQueries++
-      GlobalSearchScope fileScope = GlobalSearchScope.fileScope(clazz.containingFile);
-      IdIndexEntry key = new IdIndexEntry('Foo', true);
+      GlobalSearchScope fileScope = GlobalSearchScope.fileScope(clazz.containingFile)
+      IdIndexEntry key = new IdIndexEntry('Foo', true)
       def hasId = !FileBasedIndex.instance.getContainingFiles(IdIndex.NAME, key, fileScope).isEmpty()
       CachedValueProvider.Result.create(hasId, PsiModificationTracker.MODIFICATION_COUNT)
     }
@@ -1494,7 +1489,7 @@ class IndexTest extends JavaCodeInsightFixtureTestCase {
     def file = ScratchRootType.getInstance().createScratchFile(project, "Foo.java", JavaLanguage.INSTANCE, "class Foo {}")
 
     def text = "<fileBasedIndex implementation=\"" + CountingFileBasedIndexExtension.class.getName() + "\"/>"
-    Disposer.register(testRootDisposable, loadExtensionWithText(text, CountingFileBasedIndexExtension.class.classLoader))
+    Disposer.register(testRootDisposable, DynamicPluginsTestUtil.loadExtensionWithText(text))
 
     FileBasedIndex.getInstance().getFileData(CountingFileBasedIndexExtension.INDEX_ID, file, project)
     assertTrue(CountingFileBasedIndexExtension.COUNTER.get() > 0)

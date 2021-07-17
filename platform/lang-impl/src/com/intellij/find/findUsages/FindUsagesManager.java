@@ -51,7 +51,6 @@ import com.intellij.util.CommonProcessors;
 import com.intellij.util.DeprecatedMethodException;
 import com.intellij.util.Processor;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.pico.CachingConstructorInjectionComponentAdapter;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -181,16 +180,19 @@ public final class FindUsagesManager {
 
   @Nullable
   public FindUsagesHandler getNewFindUsagesHandler(@NotNull PsiElement element, boolean forHighlightUsages) {
-    for (FindUsagesHandlerFactory factory : FindUsagesHandlerFactory.EP_NAME.getExtensions(myProject)) {
-      if (factory.canFindUsages(element)) {
-        Class<? extends FindUsagesHandlerFactory> aClass = factory.getClass();
-        FindUsagesHandlerFactory copy = (FindUsagesHandlerFactory)new CachingConstructorInjectionComponentAdapter(aClass.getName(), aClass)
-          .getComponentInstance(myProject.getPicoContainer());
-        FindUsagesHandler handler = copy.createFindUsagesHandler(element, forHighlightUsages);
-        if (handler == FindUsagesHandler.NULL_HANDLER) return null;
-        if (handler != null) {
-          return handler;
-        }
+    for (FindUsagesHandlerFactory factory : FindUsagesHandlerFactory.EP_NAME.getExtensionList(myProject)) {
+      if (!factory.canFindUsages(element)) {
+        continue;
+      }
+
+      Class<? extends FindUsagesHandlerFactory> aClass = factory.getClass();
+      FindUsagesHandlerFactory copy = myProject.instantiateClass(aClass, factory.pluginDescriptor.getPluginId());
+      FindUsagesHandler handler = copy.createFindUsagesHandler(element, forHighlightUsages);
+      if (handler == FindUsagesHandler.NULL_HANDLER) {
+        return null;
+      }
+      if (handler != null) {
+        return handler;
       }
     }
     return null;
@@ -485,7 +487,7 @@ public final class FindUsagesManager {
     String scopeString = options.searchScope.getDisplayName();
     presentation.setScopeText(scopeString);
     presentation.setSearchString(FindBundle.message("find.usages.of.element.tab.name", usagesString, longName));
-    presentation.setTabText(FindBundle.message("find.usages.of.element.in.scope.panel.title", usagesString, longName, scopeString));
+    presentation.setTabText(FindBundle.message("find.usages.of.element.in.scope.panel.title", longName, scopeString));
     presentation.setTabName(FindBundle.message("find.usages.of.element.tab.name", usagesString, UsageViewUtil.getShortName(psiElement)));
     presentation.setTargetsNodeText(StringUtil.capitalize(UsageViewUtil.getType(psiElement)));
     presentation.setOpenInNewTab(toOpenInNewTab);

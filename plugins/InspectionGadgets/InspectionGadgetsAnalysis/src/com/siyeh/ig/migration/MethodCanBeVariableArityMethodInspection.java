@@ -34,8 +34,6 @@ import static com.siyeh.InspectionGadgetsBundle.message;
 
 public class MethodCanBeVariableArityMethodInspection extends BaseInspection {
 
-  void process(String name, Object... objects) {}
-
   @SuppressWarnings({"PublicField"})
   public boolean ignoreByteAndShortArrayParameters = false;
 
@@ -77,7 +75,7 @@ public class MethodCanBeVariableArityMethodInspection extends BaseInspection {
   }
 
   @Override
-  public boolean shouldInspect(PsiFile file) {
+  public boolean shouldInspect(@NotNull PsiFile file) {
     return PsiUtil.isLanguageLevel5OrHigher(file);
   }
 

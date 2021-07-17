@@ -1,13 +1,10 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.target.local;
 
 import com.intellij.execution.Platform;
 import com.intellij.execution.configurations.GeneralCommandLine;
-import com.intellij.execution.target.HostPort;
-import com.intellij.execution.target.BaseTargetEnvironmentRequest;
-import com.intellij.execution.target.TargetEnvironment;
-import com.intellij.execution.target.TargetEnvironmentRequest;
-import com.intellij.execution.target.TargetPlatform;
+import com.intellij.execution.process.PtyCommandLineOptions;
+import com.intellij.execution.target.*;
 import com.intellij.execution.target.value.TargetValue;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.containers.hash.LinkedHashMap;
@@ -23,6 +20,7 @@ public class LocalTargetEnvironmentRequest extends BaseTargetEnvironmentRequest 
   private Volume myDefaultVolume;
   private final Map<String, LocalDownloadVolume> myDownloadRoots = new LinkedHashMap<>();
   private final Map<String, LocalUploadVolume> myUploadRoots = new LinkedHashMap<>();
+  private PtyCommandLineOptions myPtyOptions;
 
   public LocalTargetEnvironmentRequest() {
     super();
@@ -51,6 +49,12 @@ public class LocalTargetEnvironmentRequest extends BaseTargetEnvironmentRequest 
   @Override
   public TargetPlatform getTargetPlatform() {
     return TargetPlatform.CURRENT;
+  }
+
+  @Nullable
+  @Override
+  public TargetEnvironmentConfiguration getConfiguration() {
+    return null;
   }
 
   @Override
@@ -94,6 +98,14 @@ public class LocalTargetEnvironmentRequest extends BaseTargetEnvironmentRequest 
   }
 
   @NotNull
+  @Override
+  public LocalTargetEnvironment prepareEnvironment(@NotNull TargetProgressIndicator progressIndicator) {
+    LocalTargetEnvironment environment = new LocalTargetEnvironment(this);
+    environmentPrepared(environment, progressIndicator);
+    return environment;
+  }
+
+  @NotNull
   GeneralCommandLine.ParentEnvironmentType getParentEnvironmentType() {
     return myParentEnvironmentType;
   }
@@ -104,6 +116,14 @@ public class LocalTargetEnvironmentRequest extends BaseTargetEnvironmentRequest 
 
   public void setParentEnvironmentType(@NotNull GeneralCommandLine.ParentEnvironmentType parentEnvironmentType) {
     myParentEnvironmentType = parentEnvironmentType;
+  }
+
+  public @Nullable PtyCommandLineOptions getPtyOptions() {
+    return myPtyOptions;
+  }
+
+  public void setPtyOptions(@Nullable PtyCommandLineOptions ptyOptions) {
+    myPtyOptions = ptyOptions;
   }
 
   private static class LocalUploadVolume implements TargetEnvironmentRequest.Volume {

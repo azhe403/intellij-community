@@ -1,4 +1,4 @@
-// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.wm.impl.welcomeScreen;
 
 import com.intellij.icons.AllIcons;
@@ -193,11 +193,12 @@ public class FlatWelcomeFrame extends JFrame implements IdeFrame, Disposable, Ac
     }
     if (USE_TABBED_WELCOME_SCREEN) {
       JBDimension defaultSize = JBUI.size(MAX_DEFAULT_WIDTH, defaultHeight);
-      getRootPane().setPreferredSize(chooseNotNull(WindowStateService.getInstance().getSize(WelcomeFrame.DIMENSION_KEY), defaultSize));
+      setPreferredSize(chooseNotNull(WindowStateService.getInstance().getSize(WelcomeFrame.DIMENSION_KEY), defaultSize));
+      setMinimumSize(defaultSize);
     }
     else {
       int width = RecentProjectListActionProvider.getInstance().getActions(false).size() == 0 ? 666 : MAX_DEFAULT_WIDTH;
-      getRootPane().setPreferredSize(JBUI.size(width, defaultHeight));
+      setPreferredSize(JBUI.size(width, defaultHeight));
     }
     setResizable(USE_TABBED_WELCOME_SCREEN);
 
@@ -355,21 +356,20 @@ public class FlatWelcomeFrame extends JFrame implements IdeFrame, Disposable, Ac
       TouchbarDataKeys.putActionDescriptor(myTouchbarActions).setShowText(true);
     }
 
-    @SuppressWarnings("UseJBColor")
     @Override
     public void paint(Graphics g) {
       super.paint(g);
       if (inDnd) {
         Rectangle bounds = getBounds();
-        g.setColor(JBColor.namedColor("DragAndDrop.areaBackground", 0x3d7dcc, 0x404a57));
+        g.setColor(JBUI.CurrentTheme.DragAndDrop.Area.BACKGROUND);
         g.fillRect(bounds.x, bounds.y, bounds.width, bounds.height);
 
-        Color backgroundBorder = JBColor.namedColor("DragAndDrop.areaBorderColor", new Color(137, 178, 222));
+        Color backgroundBorder = JBUI.CurrentTheme.DragAndDrop.BORDER_COLOR;
         g.setColor(backgroundBorder);
         g.drawRect(bounds.x, bounds.y, bounds.width, bounds.height);
         g.drawRect(bounds.x + 1, bounds.y + 1, bounds.width - 2, bounds.height - 2);
 
-        Color foreground = JBColor.namedColor("DragAndDrop.areaForeground", Gray._120);
+        Color foreground = JBUI.CurrentTheme.DragAndDrop.Area.FOREGROUND;
         g.setColor(foreground);
         Font labelFont = StartupUiUtil.getLabelFont();
         Font font = labelFont.deriveFont(labelFont.getSize() + 5.0f);

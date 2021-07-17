@@ -1,16 +1,15 @@
-// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.projectRoots;
 
 import com.intellij.execution.CantRunException;
 import com.intellij.execution.configurations.GeneralCommandLine;
 import com.intellij.execution.configurations.GeneralCommandLine.ParentEnvironmentType;
 import com.intellij.execution.configurations.SimpleJavaParameters;
-import com.intellij.execution.target.TargetEnvironmentAwareRunProfileState;
-import com.intellij.execution.target.TargetEnvironmentConfiguration;
 import com.intellij.execution.target.TargetEnvironmentRequest;
+import com.intellij.execution.target.TargetProgressIndicator;
 import com.intellij.execution.target.TargetedCommandLineBuilder;
 import com.intellij.execution.target.local.LocalTargetEnvironment;
-import com.intellij.execution.target.local.LocalTargetEnvironmentFactory;
+import com.intellij.execution.target.local.LocalTargetEnvironmentRequest;
 import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
@@ -25,13 +24,10 @@ import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
-import java.util.Objects;
 import java.util.jar.Attributes;
 
 public final class JdkUtil {
   public static final Key<Map<String, String>> COMMAND_LINE_CONTENT = Key.create("command.line.content");
-
-  public static final Key<JdkCommandLineSetup> COMMAND_LINE_SETUP_KEY = Key.create("com.intellij.openapi.projectRoots.JdkCommandLineSetup");
 
   public static final Key<String> AGENT_RUNTIME_CLASSPATH = Key.create("command.line.agent.classpath");
 
@@ -44,21 +40,9 @@ public final class JdkUtil {
 
   private JdkUtil() { }
 
-  /**
-   * Returns the specified attribute of the JDK (examines 'rt.jar'), or {@code null} if cannot determine the value.
-   */
+  /** @deprecated outdated, please use {@link org.jetbrains.jps.model.java.JdkVersionDetector} instead */
+  @Deprecated
   public static @Nullable String getJdkMainAttribute(@NotNull Sdk jdk, @NotNull Attributes.Name attribute) {
-    if (attribute == Attributes.Name.IMPLEMENTATION_VERSION) {
-      // optimization: JDK version string is cached
-      String versionString = jdk.getVersionString();
-      if (versionString != null) {
-        int start = versionString.indexOf('"'), end = versionString.lastIndexOf('"');
-        if (start >= 0 && end > start) {
-          return versionString.substring(start + 1, end);
-        }
-      }
-    }
-
     String homePath = jdk.getHomePath();
     if (homePath != null) {
       File signatureJar = FileUtil.findFirstThatExist(
@@ -77,9 +61,7 @@ public final class JdkUtil {
 
   public static @Nullable String suggestJdkName(@Nullable String versionString) {
     JavaVersion version = JavaVersion.tryParse(versionString);
-    if (version == null) return null;
-
-    return suggestJdkName(version, null);
+    return version == null ? null : suggestJdkName(version, null);
   }
 
   public static @NotNull String suggestJdkName(@NotNull JavaVersion version, @Nullable String vendorPrefix) {
@@ -126,23 +108,19 @@ public final class JdkUtil {
 
   @ApiStatus.Internal
   public static @NotNull TargetedCommandLineBuilder setupJVMCommandLine(@NotNull SimpleJavaParameters javaParameters,
-                                                                        @NotNull TargetEnvironmentRequest request,
-                                                                        @Nullable TargetEnvironmentConfiguration targetConfiguration)
+                                                                        @NotNull TargetEnvironmentRequest request)
     throws CantRunException {
 
-    JdkCommandLineSetup setup = new JdkCommandLineSetup(request, targetConfiguration);
+    JdkCommandLineSetup setup = new JdkCommandLineSetup(request);
     setup.setupJavaExePath(javaParameters);
     setup.setupCommandLine(javaParameters);
     return setup.getCommandLine();
   }
 
   public static @NotNull GeneralCommandLine setupJVMCommandLine(@NotNull SimpleJavaParameters javaParameters) throws CantRunException {
-    LocalTargetEnvironmentFactory environmentFactory = new LocalTargetEnvironmentFactory();
-    TargetEnvironmentRequest request = environmentFactory.createRequest();
-    TargetedCommandLineBuilder builder = setupJVMCommandLine(javaParameters, request, null);
-    LocalTargetEnvironment environment = environmentFactory.prepareRemoteEnvironment(request, TargetEnvironmentAwareRunProfileState.TargetProgressIndicator.EMPTY);
-    Objects.requireNonNull(builder.getUserData(COMMAND_LINE_SETUP_KEY))
-      .provideEnvironment(environment, TargetEnvironmentAwareRunProfileState.TargetProgressIndicator.EMPTY);
+    LocalTargetEnvironmentRequest request = new LocalTargetEnvironmentRequest();
+    TargetedCommandLineBuilder builder = setupJVMCommandLine(javaParameters, request );
+    LocalTargetEnvironment environment = request.prepareEnvironment(TargetProgressIndicator.EMPTY);
     return environment.createGeneralCommandLine(builder.build());
   }
 
@@ -185,12 +163,11 @@ public final class JdkUtil {
   }
 
   private static void setupCommandLine(GeneralCommandLine commandLine, SimpleJavaParameters javaParameters) throws CantRunException {
-    LocalTargetEnvironmentFactory environmentFactory = new LocalTargetEnvironmentFactory();
-    TargetEnvironmentRequest request = environmentFactory.createRequest();
-    JdkCommandLineSetup setup = new JdkCommandLineSetup(request, null);
+    LocalTargetEnvironmentRequest request = new LocalTargetEnvironmentRequest();
+    JdkCommandLineSetup setup = new JdkCommandLineSetup(request);
     setup.setupCommandLine(javaParameters);
 
-    LocalTargetEnvironment environment = environmentFactory.prepareRemoteEnvironment(request, TargetEnvironmentAwareRunProfileState.TargetProgressIndicator.EMPTY);
+    LocalTargetEnvironment environment = request.prepareEnvironment(TargetProgressIndicator.EMPTY);
     GeneralCommandLine generalCommandLine = environment.createGeneralCommandLine(setup.getCommandLine().build());
     commandLine.withParentEnvironmentType(javaParameters.isPassParentEnvs() ? ParentEnvironmentType.CONSOLE : ParentEnvironmentType.NONE);
     commandLine.getParametersList().addAll(generalCommandLine.getParametersList().getList());

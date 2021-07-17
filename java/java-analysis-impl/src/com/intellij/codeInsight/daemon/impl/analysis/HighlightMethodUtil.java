@@ -1244,6 +1244,7 @@ public final class HighlightMethodUtil {
     boolean isExtension = method.hasModifierProperty(PsiModifier.DEFAULT);
     boolean isStatic = method.hasModifierProperty(PsiModifier.STATIC);
     boolean isPrivate = method.hasModifierProperty(PsiModifier.PRIVATE);
+    boolean isConstructor = method.isConstructor();
 
     final List<IntentionAction> additionalFixes = new ArrayList<>();
     String description = null;
@@ -1264,7 +1265,7 @@ public final class HighlightMethodUtil {
       }
     }
     else if (isInterface) {
-      if (!isExtension && !isStatic && !isPrivate) {
+      if (!isExtension && !isStatic && !isPrivate && !isConstructor) {
         description = JavaErrorBundle.message("interface.methods.cannot.have.body");
         if (languageLevel.isAtLeast(LanguageLevel.JDK_1_8)) {
           if (Stream.of(method.findDeepestSuperMethods())

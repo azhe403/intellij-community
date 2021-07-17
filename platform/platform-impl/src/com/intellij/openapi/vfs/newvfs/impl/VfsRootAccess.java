@@ -3,10 +3,10 @@ package com.intellij.openapi.vfs.newvfs.impl;
 
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.Application;
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.PathManager;
-import com.intellij.openapi.application.impl.ApplicationImpl;
-import com.intellij.openapi.application.impl.ApplicationInfoImpl;
+import com.intellij.openapi.application.ReadAction;
+import com.intellij.openapi.application.ex.ApplicationEx;
+import com.intellij.openapi.application.ex.ApplicationManagerEx;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.project.Project;
@@ -18,6 +18,7 @@ import com.intellij.openapi.roots.OrderEnumerator;
 import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.roots.ui.configuration.DefaultModulesProvider;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.JarFileSystem;
@@ -51,13 +52,11 @@ public final class VfsRootAccess {
 
   @TestOnly
   static void assertAccessInTests(@NotNull VirtualFile child, @NotNull NewVirtualFileSystem delegate) {
-    Application application = ApplicationManager.getApplication();
+    ApplicationEx app = ApplicationManagerEx.getApplicationEx();
     if (SHOULD_PERFORM_ACCESS_CHECK &&
-        application.isUnitTestMode() &&
-        application instanceof ApplicationImpl &&
-        ((ApplicationImpl)application).getComponentCreated() &&
-        !ApplicationInfoImpl.isInStressTest()) {
-
+        app.isUnitTestMode() &&
+        app.isComponentCreated() &&
+        !ApplicationManagerEx.isInStressTest()) {
       if (delegate != LocalFileSystem.getInstance() && delegate != JarFileSystem.getInstance()) {
         return;
       }
@@ -127,6 +126,13 @@ public final class VfsRootAccess {
       allowed.add(FileUtil.toSystemIndependentName(findInUserHome(".m2")));
       allowed.add(FileUtil.toSystemIndependentName(findInUserHome(".gradle")));
 
+      if (SystemInfo.isWindows) {
+        String wslName = System.getProperty("wsl.distribution.name");
+        if (wslName != null) {
+          allowed.add(FileUtil.toSystemIndependentName("\\\\wsl$\\" + wslName));
+        }
+      }
+
       // see IDEA-167037 The assertion "File accessed outside allowed root" is triggered by files symlinked from the JDK installation folder
       allowed.add("/etc"); // After recent update of Oracle JDK 1.8 under Ubuntu Certain files in the JDK installation are symlinked to /etc
       allowed.add("/private/etc");
@@ -135,24 +141,26 @@ public final class VfsRootAccess {
         if (!project.isInitialized()) {
           return null; // all is allowed
         }
-        for (String url : ProjectRootManager.getInstance(project).getContentRootUrls()) {
-          allowed.add(VfsUtilCore.urlToPath(url));
-        }
-        for (Module module : ModuleManager.getInstance(project).getModules()) {
-          Sdk moduleSdk = ModuleRootManager.getInstance(module).getSdk();
-          if (moduleSdk != null) {
-            String homePath = moduleSdk.getHomePath();
-            if (homePath != null) {
-              allowed.add(homePath);
+        ReadAction.run(() -> {
+          for (String url : ProjectRootManager.getInstance(project).getContentRootUrls()) {
+            allowed.add(VfsUtilCore.urlToPath(url));
+          }
+          for (Module module : ModuleManager.getInstance(project).getModules()) {
+            Sdk moduleSdk = ModuleRootManager.getInstance(module).getSdk();
+            if (moduleSdk != null) {
+              String homePath = moduleSdk.getHomePath();
+              if (homePath != null) {
+                allowed.add(homePath);
+              }
             }
           }
-        }
-        for (String url : getAllRootUrls(project)) {
-          allowed.add(StringUtil.trimEnd(VfsUtilCore.urlToPath(url), JarFileSystem.JAR_SEPARATOR));
-        }
-        String location = project.getBasePath();
-        assert location != null : project;
-        allowed.add(FileUtil.toSystemIndependentName(location));
+          for (String url : getAllRootUrls(project)) {
+            allowed.add(StringUtil.trimEnd(VfsUtilCore.urlToPath(url), JarFileSystem.JAR_SEPARATOR));
+          }
+          String location = project.getBasePath();
+          assert location != null : project;
+          allowed.add(FileUtil.toSystemIndependentName(location));
+        });
       }
     }
     catch (Error ignored) {

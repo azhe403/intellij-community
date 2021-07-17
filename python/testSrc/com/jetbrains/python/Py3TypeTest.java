@@ -4,6 +4,7 @@ package com.jetbrains.python;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiFile;
 import com.jetbrains.python.fixtures.PyTestCase;
+import com.jetbrains.python.inspections.PyTypeCheckerInspectionTest;
 import com.jetbrains.python.psi.PyExpression;
 import com.jetbrains.python.psi.types.TypeEvalContext;
 import org.jetbrains.annotations.NotNull;
@@ -16,7 +17,7 @@ public class Py3TypeTest extends PyTestCase {
 
   // PY-6702
   public void testYieldFromType() {
-    doTest("Union[str, int, float]",
+    doTest("str | int | float",
            "def subgen():\n" +
            "    for i in [1, 2, 3]:\n" +
            "        yield i\n" +
@@ -74,7 +75,7 @@ public class Py3TypeTest extends PyTestCase {
   }
 
   public void testYieldFromHeterogeneousTuple() {
-    doTest("Union[int, str]",
+    doTest("int | str",
            "import typing\n" +
            "def get_tuple() -> typing.Tuple[int, int, str]:\n" +
            "    pass\n" +
@@ -439,7 +440,7 @@ public class Py3TypeTest extends PyTestCase {
 
   // PY-20757
   public void testMinElseNone() {
-    doTest("Optional[Any]",
+    doTest("Any | None",
            "def get_value(v):\n" +
            "    if v:\n" +
            "        return min(v)\n" +
@@ -472,7 +473,7 @@ public class Py3TypeTest extends PyTestCase {
 
   public void testNumpyResolveRaterDoesNotIncreaseRateForNotNdarrayRightOperatorFoundInStub() {
     myFixture.copyDirectoryToProject(TEST_DIRECTORY + getTestName(false), "");
-    doTest("Union[D1, D2]",
+    doTest("D1 | D2",
            "class D1(object):\n" +
            "    pass\n" +
            "class D2(object):\n" +
@@ -539,7 +540,7 @@ public class Py3TypeTest extends PyTestCase {
 
   // PY-22513
   public void testGenericKwargs() {
-    doTest("dict[str, Union[int, str]]",
+    doTest("dict[str, int | str]",
            "from typing import Any, Dict, TypeVar\n" +
            "\n" +
            "T = TypeVar('T')\n" +
@@ -1071,9 +1072,43 @@ public class Py3TypeTest extends PyTestCase {
            "        expr = m");
   }
 
+  /**
+   * @see #testRecursiveDictTopDown()
+   * @see PyTypeCheckerInspectionTest#testRecursiveDictAttribute()
+   */
+  public void testRecursiveDictBottomUp() {
+    String text = "class C:\n" +
+                  "    def f(self, x):\n" +
+                  "        self.foo = x\n" +
+                  "        self.foo = {'foo': self.foo}\n" +
+                  "        expr = self.foo\n";
+    myFixture.configureByText(PythonFileType.INSTANCE, text);
+    PyExpression dict = myFixture.findElementByText("{'foo': self.foo}", PyExpression.class);
+    assertExpressionType("dict[str, Any]", dict);
+    final PyExpression expr = myFixture.findElementByText("expr", PyExpression.class);
+    assertExpressionType("dict[str, Any]", expr);
+  }
+
+  public void testRecursiveDictTopDown() {
+    String text = "class C:\n" +
+                  "    def f(self, x):\n" +
+                  "        self.foo = x\n" +
+                  "        self.foo = {'foo': self.foo}\n" +
+                  "        expr = self.foo\n";
+    myFixture.configureByText(PythonFileType.INSTANCE, text);
+    final PyExpression expr = myFixture.findElementByText("expr", PyExpression.class);
+    assertExpressionType("dict[str, Any]", expr);
+    PyExpression dict = myFixture.findElementByText("{'foo': self.foo}", PyExpression.class);
+    assertExpressionType("dict[str, Any]", dict);
+  }
+
   private void doTest(final String expectedType, final String text) {
     myFixture.configureByText(PythonFileType.INSTANCE, text);
     final PyExpression expr = myFixture.findElementByText("expr", PyExpression.class);
+    assertExpressionType(expectedType, expr);
+  }
+
+  private void assertExpressionType(@NotNull String expectedType, @NotNull PyExpression expr) {
     final Project project = expr.getProject();
     final PsiFile containingFile = expr.getContainingFile();
     assertType(expectedType, expr, TypeEvalContext.codeAnalysis(project, containingFile));

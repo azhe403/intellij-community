@@ -189,7 +189,7 @@ public class ActionButtonWithText extends ActionButton {
     look.paintIcon(g, this, icon, iconRect.x, iconRect.y);
     look.paintBorder(g, this);
 
-    g.setColor(isButtonEnabled() ? getForeground() : getInactiveTextColor());
+    g.setColor(isEnabled() ? getForeground() : getInactiveTextColor());
     UIUtilities.drawStringUnderlineCharAt(this, g, text, getMnemonicCharIndex(text),
                                           textRect.x, textRect.y + fm.getAscent());
     if (arrowIcon != null) {
@@ -206,7 +206,7 @@ public class ActionButtonWithText extends ActionButton {
   @Override
   protected void presentationPropertyChanged(@NotNull PropertyChangeEvent e) {
     super.presentationPropertyChanged(e);
-    if (Presentation.PROP_TEXT.equals(e.getPropertyName())) {
+    if (Presentation.PROP_TEXT_WITH_SUFFIX.equals(e.getPropertyName())) {
       revalidate(); // recalc preferred size & repaint instantly
     }
   }
@@ -262,8 +262,8 @@ public class ActionButtonWithText extends ActionButton {
 
   @NotNull
   @NlsActions.ActionText
-  private String getText() {
-    final String text = myPresentation.getText();
+  protected String getText() {
+    final String text = myPresentation.getText(true);
     return text != null ? text : "";
   }
 

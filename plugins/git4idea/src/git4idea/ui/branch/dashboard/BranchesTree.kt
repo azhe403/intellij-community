@@ -10,7 +10,6 @@ import com.intellij.icons.AllIcons
 import com.intellij.ide.dnd.TransferableList
 import com.intellij.ide.dnd.aware.DnDAwareTree
 import com.intellij.ide.util.treeView.TreeState
-import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.application.runInEdt
 import com.intellij.openapi.components.*
 import com.intellij.openapi.project.Project
@@ -20,24 +19,32 @@ import com.intellij.psi.codeStyle.FixingLayoutMatcher
 import com.intellij.psi.codeStyle.MinusculeMatcher
 import com.intellij.psi.codeStyle.NameUtil
 import com.intellij.ui.*
+import com.intellij.ui.hover.TreeHoverListener
+import com.intellij.ui.scale.JBUIScale
 import com.intellij.ui.speedSearch.SpeedSearch
 import com.intellij.ui.speedSearch.SpeedSearchSupply
 import com.intellij.util.EditSourceOnDoubleClickHandler.isToggleEvent
 import com.intellij.util.PlatformIcons
 import com.intellij.util.ThreeState
-import com.intellij.util.containers.SmartHashSet
 import com.intellij.util.ui.UIUtil
 import com.intellij.util.ui.tree.TreeUtil
+import com.intellij.vcs.branch.BranchData
+import com.intellij.vcs.branch.BranchPresentation
+import com.intellij.vcs.branch.LinkedBranchDataImpl
 import com.intellij.vcs.log.util.VcsLogUtil
+import com.intellij.vcsUtil.VcsImplUtil
 import git4idea.config.GitVcsSettings
 import git4idea.repo.GitRepository
 import git4idea.repo.GitRepositoryManager
+import git4idea.ui.branch.GitBranchPopupActions.LocalBranchActions.constructIncomingOutgoingTooltip
 import git4idea.ui.branch.dashboard.BranchesDashboardActions.BranchesTreeActionGroup
 import icons.DvcsImplIcons
+import java.awt.Graphics
 import java.awt.GraphicsEnvironment
 import java.awt.datatransfer.Transferable
 import java.awt.event.MouseEvent
 import java.util.*
+import javax.swing.Icon
 import javax.swing.JComponent
 import javax.swing.JTree
 import javax.swing.TransferHandler
@@ -59,6 +66,7 @@ internal class BranchesTreeComponent(project: Project) : DnDAwareTree() {
     isHorizontalAutoScrollingEnabled = false
     installDoubleClickHandler()
     SmartExpander.installOn(this)
+    TreeHoverListener.DEFAULT.addTo(this)
     initDnD()
   }
 
@@ -66,6 +74,8 @@ internal class BranchesTreeComponent(project: Project) : DnDAwareTree() {
     private val repositoryManager = GitRepositoryManager.getInstance(project)
     private val colorManager = getColorManager(project)
     private val branchSettings = GitVcsSettings.getInstance(project).branchSettings
+
+    private var incomingOutgoingIcon: NodeIcon? = null
 
     override fun customizeCellRenderer(tree: JTree,
                                        value: Any?,
@@ -92,16 +102,43 @@ internal class BranchesTreeComponent(project: Project) : DnDAwareTree() {
         else -> null
       }
 
+      toolTipText =
+        if (branchInfo != null && branchInfo.isLocal)
+          BranchPresentation.getTooltip(getBranchesTooltipData(branchInfo.branchName, getSelectedRepositories(descriptor)))
+        else null
+
       append(value.getTextRepresentation(), SimpleTextAttributes.REGULAR_ATTRIBUTES, true)
 
       val repositoryGrouping = branchSettings.isGroupingEnabled(GroupingKey.GROUPING_BY_REPOSITORY)
       if (!repositoryGrouping && branchInfo != null && branchInfo.repositories.size < repositoryManager.repositories.size) {
         append(" (${DvcsUtil.getShortNames(branchInfo.repositories)})", SimpleTextAttributes.GRAYED_ATTRIBUTES)
       }
+
+      val incomingOutgoingState = branchInfo?.incomingOutgoingState
+      incomingOutgoingIcon = incomingOutgoingState?.icon?.let { NodeIcon(it, preferredSize.width + tree.insets.left) }
+      tree.toolTipText = incomingOutgoingState?.run { constructIncomingOutgoingTooltip(hasIncoming(), hasOutgoing()) }
     }
 
     override fun calcFocusedState() = super.calcFocusedState() || searchField?.textEditor?.hasFocus() ?: false
+
+    private fun getBranchesTooltipData(branchName: String, repositories: Collection<GitRepository>): List<BranchData> {
+      return repositories.map { repo ->
+        val trackedBranchName = repo.branches.findLocalBranch(branchName)?.findTrackedBranch(repo)?.name
+        val presentableRootName = VcsImplUtil.getShortVcsRootName(repo.project, repo.root)
+
+        LinkedBranchDataImpl(presentableRootName, branchName, trackedBranchName)
+      }
+    }
+
+    override fun paint(g: Graphics) {
+      super.paint(g)
+      incomingOutgoingIcon?.let { (icon, locationX) ->
+        icon.paintIcon(this@BranchTreeCellRenderer, g, locationX, JBUIScale.scale(2))
+      }
+    }
   }
+
+  private data class NodeIcon(val icon: Icon, val locationX: Int)
 
   override fun hasFocus() = super.hasFocus() || searchField?.textEditor?.hasFocus() ?: false
 
@@ -139,14 +176,31 @@ internal class BranchesTreeComponent(project: Project) : DnDAwareTree() {
       .mapNotNull { it as? BranchTreeNode }
   }
 
-  fun getSelectedRemotes(): Set<String> {
+  fun getSelectedRemotes(): Set<RemoteInfo> {
     val paths = selectionPaths ?: return emptySet()
     return paths.asSequence()
       .map(TreePath::getLastPathComponent)
       .mapNotNull { it as? BranchTreeNode }
-      .filter { it.getNodeDescriptor().type == NodeType.GROUP_NODE && it.getNodeDescriptor().parent?.type == NodeType.REMOTE_ROOT }
-      .mapNotNull { it.getNodeDescriptor().displayName }
+      .filter {
+        it.getNodeDescriptor().displayName != null &&
+        it.getNodeDescriptor().type == NodeType.GROUP_NODE &&
+        (it.getNodeDescriptor().parent?.type == NodeType.REMOTE_ROOT || it.getNodeDescriptor().parent?.repository != null)
+      }
+      .mapNotNull { with(it.getNodeDescriptor()) { RemoteInfo(displayName!!, parent?.repository) } }
       .toSet()
+  }
+
+  fun getSelectedRepositories(descriptor: BranchNodeDescriptor): List<GitRepository> {
+    var parent = descriptor.parent
+
+    while (parent != null) {
+      val repository = parent.repository
+      if (repository != null) return listOf(repository)
+
+      parent = parent.parent
+    }
+
+    return descriptor.branchInfo?.repositories ?: emptyList()
   }
 
   fun getSelectedRepositories(branchInfo: BranchInfo): Set<GitRepository> {
@@ -179,7 +233,7 @@ internal class FilteringBranchesTree(project: Project,
                                      rootNode: BranchTreeNode = BranchTreeNode(BranchNodeDescriptor(NodeType.ROOT)))
   : FilteringTree<BranchTreeNode, BranchNodeDescriptor>(project, component, rootNode) {
 
-  private val expandedPaths = SmartHashSet<TreePath>()
+  private val expandedPaths = HashSet<TreePath>()
 
   private val localBranchesNode = BranchTreeNode(BranchNodeDescriptor(NodeType.LOCAL_ROOT))
   private val remoteBranchesNode = BranchTreeNode(BranchNodeDescriptor(NodeType.REMOTE_ROOT))
@@ -209,7 +263,7 @@ internal class FilteringBranchesTree(project: Project,
 
   init {
     runInEdt {
-      PopupHandler.installPopupHandler(component, BranchesTreeActionGroup(project, this), "BranchesTreePopup", ActionManager.getInstance())
+      PopupHandler.installPopupMenu(component, BranchesTreeActionGroup(project, this), "BranchesTreePopup")
       setupTreeExpansionListener()
       project.service<BranchesTreeStateHolder>().setTree(this)
     }
@@ -391,7 +445,7 @@ internal class FilteringBranchesTree(project: Project,
 
   private fun getRootNodeDescriptors() =
     mutableListOf<BranchNodeDescriptor>().apply {
-      add(headBranchesNode.getNodeDescriptor())
+      if (localNodeExist || remoteNodeExist) add(headBranchesNode.getNodeDescriptor())
       if (localNodeExist) add(localBranchesNode.getNodeDescriptor())
       if (remoteNodeExist) add(remoteBranchesNode.getNodeDescriptor())
     }

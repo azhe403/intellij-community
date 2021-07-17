@@ -11,7 +11,7 @@ import com.intellij.psi.*;
 import com.intellij.psi.impl.PsiImplUtil;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.util.ObjectUtils;
-import com.siyeh.ig.controlflow.MinimumSwitchBranchesInspection.UnwrapSwitchStatementFix;
+import com.siyeh.ig.controlflow.SwitchStatementWithTooFewBranchesInspection.UnwrapSwitchStatementFix;
 import com.siyeh.ig.psiutils.BreakConverter;
 import com.siyeh.ig.psiutils.CommentTracker;
 import org.jetbrains.annotations.Nls;
@@ -44,9 +44,9 @@ public class UnwrapSwitchLabelFix implements LocalQuickFix {
       if (otherLabel == labelStatement || (shouldKeepDefault && otherLabel.isDefaultCase())) continue;
       DeleteSwitchLabelFix.deleteLabel(otherLabel);
     }
-    for (PsiExpression expression : Objects.requireNonNull(labelStatement.getCaseValues()).getExpressions()) {
-      if (expression != label) {
-        new CommentTracker().deleteAndRestoreComments(expression);
+    for (PsiCaseLabelElement labelElement : Objects.requireNonNull(labelStatement.getCaseLabelElementList()).getElements()) {
+      if (labelElement != label) {
+        new CommentTracker().deleteAndRestoreComments(labelElement);
       }
     }
     tryUnwrap(labelStatement, block);

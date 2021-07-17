@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.gdpr
 
 import com.intellij.ide.IdeBundle
@@ -8,8 +8,12 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.OnePixelDivider
 import com.intellij.openapi.util.NlsContexts
+import com.intellij.openapi.util.NlsSafe
+import com.intellij.ui.BrowserHyperlinkListener
+import com.intellij.ui.JBColor
 import com.intellij.ui.border.CustomLineBorder
 import com.intellij.ui.components.JBScrollPane
+import com.intellij.util.ui.JBHtmlEditorKit
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.SwingHelper
 import java.awt.BorderLayout
@@ -22,14 +26,20 @@ import javax.swing.border.CompoundBorder
 import javax.swing.text.html.HTMLDocument
 import kotlin.system.exitProcess
 
-class AgreementUi private constructor(val htmlText: String, val exitOnCancel: Boolean) {
+class AgreementUi private constructor(@NlsSafe val htmlText: String, val exitOnCancel: Boolean, val useRtfPane: Boolean = true) {
+  companion object {
+    @JvmStatic
+    fun create(htmlText: String = "", exitOnCancel: Boolean = true, useRtfPane: Boolean = true): AgreementUi {
+      return AgreementUi(htmlText, exitOnCancel, useRtfPane).createDialog()
+    }
+  }
 
   private val bundle
     get() = ResourceBundle.getBundle("messages.AgreementsBundle")
 
   private var bottomPanel: JPanel? = null
   private var htmlRtfPane: HtmlRtfPane? = null
-  private var viewer: JTextPane? = null
+  private var viewer: JEditorPane? = null
 
   private var declineButton: JButton? = null
   private var acceptButton: JButton? = null
@@ -42,7 +52,6 @@ class AgreementUi private constructor(val htmlText: String, val exitOnCancel: Bo
 
   private fun createDialog(): AgreementUi {
     val dialogWrapper = object : DialogWrapper(true) {
-
       init {
         init()
       }
@@ -55,11 +64,16 @@ class AgreementUi private constructor(val htmlText: String, val exitOnCancel: Bo
         return buttonsPanel
       }
 
-      override fun createCenterPanel(): JComponent? {
+      override fun createCenterPanel(): JComponent {
         val centerPanel = JPanel(BorderLayout(0, 0))
-        htmlRtfPane = HtmlRtfPane()
-        viewer = htmlRtfPane?.create(htmlText)
-        viewer!!.background = Color.WHITE
+        if (useRtfPane) {
+          htmlRtfPane = HtmlRtfPane()
+          viewer = htmlRtfPane?.create(htmlText)
+          viewer!!.background = Color.WHITE
+        }
+        else {
+          viewer = createHtmlEditorPane()
+        }
         viewer!!.caretPosition = 0
         viewer!!.isEditable = false
         viewer!!.border = JBUI.Borders.empty(30, 30, 30, 60)
@@ -115,6 +129,21 @@ class AgreementUi private constructor(val htmlText: String, val exitOnCancel: Bo
     return this
   }
 
+  private fun createHtmlEditorPane(): JTextPane {
+    return JTextPane().apply {
+      contentType = "text/html"
+      addHyperlinkListener(BrowserHyperlinkListener.INSTANCE)
+      editorKit = JBHtmlEditorKit(false)
+      text = htmlText
+
+      val styleSheet = (document as HTMLDocument).styleSheet
+      styleSheet.addRule("body {font-family: \"Segoe UI\", Tahoma, sans-serif;}")
+      styleSheet.addRule("body {font-size:${JBUI.Fonts.label()}pt;}")
+      foreground = JBColor.BLACK
+      background = JBColor.WHITE
+    }
+  }
+
   fun setTitle(@NlsContexts.DialogTitle title: String): AgreementUi {
     dialog?.title = title
     return this
@@ -155,8 +184,14 @@ class AgreementUi private constructor(val htmlText: String, val exitOnCancel: Bo
   }
 
   fun setText(newHtmlText: String): AgreementUi {
-    val pane = htmlRtfPane?.replaceText(newHtmlText)
-    pane?.caretPosition = 0
+    val htmlRtfPane = htmlRtfPane
+    if (htmlRtfPane != null) {
+      val pane = htmlRtfPane.replaceText(newHtmlText)
+      pane.caretPosition = 0
+    }
+    else {
+      viewer!!.text = newHtmlText
+    }
     return this
   }
 
@@ -220,11 +255,4 @@ class AgreementUi private constructor(val htmlText: String, val exitOnCancel: Bo
     dialog!!.isModal = true
     return dialog!!
   }
-
-  companion object {
-    fun create(htmlText: String = "", exitOnCancel: Boolean = true): AgreementUi {
-      return AgreementUi(htmlText, exitOnCancel).createDialog()
-    }
-  }
-
 }

@@ -7,6 +7,7 @@ import com.intellij.ide.DataManager;
 import com.intellij.injected.editor.EditorWindow;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.actionSystem.ex.ActionManagerEx;
+import com.intellij.openapi.actionSystem.ex.ActionUtil;
 import com.intellij.openapi.actionSystem.impl.SimpleDataContext;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.command.WriteCommandAction;
@@ -21,7 +22,6 @@ import com.intellij.openapi.editor.highlighter.EditorHighlighter;
 import com.intellij.openapi.editor.highlighter.EditorHighlighterFactory;
 import com.intellij.openapi.editor.highlighter.HighlighterIterator;
 import com.intellij.openapi.editor.impl.EditorImpl;
-import com.intellij.openapi.editor.impl.InlayModelImpl;
 import com.intellij.openapi.editor.impl.SoftWrapModelImpl;
 import com.intellij.openapi.editor.impl.softwrap.SoftWrapDrawingType;
 import com.intellij.openapi.editor.impl.softwrap.SoftWrapPainter;
@@ -46,6 +46,7 @@ import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
 
 import java.awt.*;
+import java.awt.geom.Rectangle2D;
 import java.nio.charset.Charset;
 import java.util.List;
 import java.util.*;
@@ -75,7 +76,7 @@ public final class EditorTestUtil {
     return first != 0 ? first : Comparing.compare(o1.second, o2.second);
   };
 
-  public static void performTypingAction(Editor editor, char c) {
+  public static void performTypingAction(@NotNull Editor editor, char c) {
     if (c == BACKSPACE_FAKE_CHAR) {
       executeAction(editor, IdeActions.ACTION_EDITOR_BACKSPACE);
     }
@@ -107,15 +108,12 @@ public final class EditorTestUtil {
 
   public static void executeAction(@NotNull Editor editor, boolean assertActionIsEnabled, @NotNull AnAction action) {
     AnActionEvent event = AnActionEvent.createFromAnAction(action, null, "", createEditorContext(editor));
-    action.beforeActionPerformedUpdate(event);
-    if (!event.getPresentation().isEnabled()) {
-      assertFalse("Action " + action + " is disabled", assertActionIsEnabled);
-      return;
+    if (ActionUtil.lastUpdateAndCheckDumb(action, event, false)) {
+      ActionUtil.performActionDumbAwareWithCallbacks(action, event);
     }
-    ActionManagerEx actionManager = ActionManagerEx.getInstanceEx();
-    actionManager.fireBeforeActionPerformed(action, event.getDataContext(), event);
-    action.actionPerformed(event);
-    actionManager.fireAfterActionPerformed(action, event.getDataContext(), event);
+    else if (assertActionIsEnabled) {
+      fail("Action " + action + " is disabled");
+    }
   }
 
   @NotNull
@@ -149,7 +147,7 @@ public final class EditorTestUtil {
 
   public static void checkEditorHighlighter(Project project, Editor editor) {
     if (!(editor instanceof EditorImpl)) return;
-    HighlighterIterator editorIterator = ((EditorEx)editor).getHighlighter().createIterator(0);
+    HighlighterIterator editorIterator = editor.getHighlighter().createIterator(0);
 
     EditorHighlighter freshHighlighter = EditorHighlighterFactory.getInstance().createEditorHighlighter(
       project, ((EditorEx)editor).getVirtualFile());
@@ -165,7 +163,7 @@ public final class EditorTestUtil {
         throw new IllegalStateException("Editor highlighter failed to update incrementally:\nFresh:  " +
                                         dumpHighlighter(freshHighlighter) +
                                         "\nEditor: " +
-                                        dumpHighlighter(((EditorImpl)editor).getHighlighter()));
+                                        dumpHighlighter(editor.getHighlighter()));
       }
       editorIterator.advance();
       freshIterator.advance();
@@ -587,12 +585,34 @@ public final class EditorTestUtil {
                                     boolean showWhenFolded,
                                     int widthInPixels,
                                     Integer heightInPixels) {
-    return ((InlayModelImpl)editor.getInlayModel()).addBlockElement(offset, relatesToPrecedingText, showAbove, showWhenFolded, 0,
-                                                                    new EmptyInlayRenderer(widthInPixels, heightInPixels));
+    return editor.getInlayModel().addBlockElement(offset,
+                                                  new InlayProperties()
+                                                    .relatesToPrecedingText(relatesToPrecedingText)
+                                                    .showAbove(showAbove)
+                                                    .showWhenFolded(showWhenFolded),
+                                                  new EmptyInlayRenderer(widthInPixels, heightInPixels));
   }
 
   public static Inlay addAfterLineEndInlay(@NotNull Editor editor, int offset, int widthInPixels) {
     return editor.getInlayModel().addAfterLineEndElement(offset, false, new EmptyInlayRenderer(widthInPixels));
+  }
+
+  public static @Nullable CustomFoldRegion addCustomFoldRegion(@NotNull Editor editor, int startLine, int endLine) {
+    return addCustomFoldRegion(editor, startLine, endLine, 1);
+  }
+
+  public static @Nullable CustomFoldRegion addCustomFoldRegion(@NotNull Editor editor, int startLine, int endLine, int heightInPixels) {
+    return addCustomFoldRegion(editor, startLine, endLine, 0, heightInPixels);
+  }
+
+  public static @Nullable CustomFoldRegion addCustomFoldRegion(@NotNull Editor editor, int startLine, int endLine,
+                                                               int widthInPixels, int heightInPixels) {
+    CustomFoldRegion[] result = new CustomFoldRegion[1];
+    FoldingModel model = editor.getFoldingModel();
+    model.runBatchFoldingOperation(() -> {
+      result[0] = model.addCustomLinesFolding(startLine, endLine, new EmptyCustomFoldingRenderer(widthInPixels, heightInPixels));
+    });
+    return result[0];
   }
 
   public static void waitForLoading(Editor editor) {
@@ -662,6 +682,7 @@ public final class EditorTestUtil {
     if (addSelection) {
       result.add(Pair.create(caret.getSelectionEnd(), SELECTION_END_TAG));
     }
+    result.sort(Pair.comparingByFirst());
     return result;
   }
 
@@ -800,6 +821,32 @@ public final class EditorTestUtil {
     public void paint(@NotNull Inlay inlay,
                       @NotNull Graphics g,
                       @NotNull Rectangle targetRegion,
+                      @NotNull TextAttributes textAttributes) {}
+  }
+
+  private static class EmptyCustomFoldingRenderer implements CustomFoldRegionRenderer {
+    private final int myWidth;
+    private final int myHeight;
+
+    private EmptyCustomFoldingRenderer(int width, int height) {
+      myWidth = width;
+      myHeight = height;
+    }
+
+    @Override
+    public int calcWidthInPixels(@NotNull CustomFoldRegion region) {
+      return myWidth;
+    }
+
+    @Override
+    public int calcHeightInPixels(@NotNull CustomFoldRegion region) {
+      return myHeight;
+    }
+
+    @Override
+    public void paint(@NotNull CustomFoldRegion region,
+                      @NotNull Graphics2D g,
+                      @NotNull Rectangle2D targetRegion,
                       @NotNull TextAttributes textAttributes) {}
   }
 

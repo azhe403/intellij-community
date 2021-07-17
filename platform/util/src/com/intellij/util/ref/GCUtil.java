@@ -1,9 +1,8 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.ref;
 
 import com.intellij.diagnostic.ThreadDumper;
 import com.intellij.openapi.util.EmptyRunnable;
-import com.intellij.util.ObjectUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.TestOnly;
 
@@ -20,31 +19,31 @@ public final class GCUtil {
   /**
    * Try to force VM to collect soft references if possible.
    * This method doesn't guarantee to succeed, and should not be used in the production code.
-   * In tests, if you can exactly point to objects you want to GC, use {@code GCWatcher.tracking(objects).tryGc()}
+   * In tests, if you can exactly point to the objects you want to GC, use {@code GCWatcher.tracking(objects).tryGc()}
    * which is faster and has more chances to succeed.
-   * <p></p>
+   * <p>
    * Commits / hours of tweaking method code: 13 / 7
    */
   @TestOnly
   public static void tryGcSoftlyReachableObjects() {
+    tryGcSoftlyReachableObjects(()->false);
+  }
+
+  @TestOnly
+  public static void tryGcSoftlyReachableObjects(@NotNull BooleanSupplier stop) {
     //long started = System.nanoTime();
     ReferenceQueue<Object> q = new ReferenceQueue<>();
     SoftReference<Object> ref = new SoftReference<>(new Object(), q);
-    ObjectUtils.reachabilityFence(ref.get());
 
     System.gc();
 
     StringBuilder log = new StringBuilder();
-    if (!allocateTonsOfMemory(log, EmptyRunnable.getInstance(), () -> ref.isEnqueued())) {
+    if (!allocateTonsOfMemory(log, EmptyRunnable.getInstance(), () -> ref.isEnqueued() || ref.get() == null || stop.getAsBoolean())) {
       //noinspection UseOfSystemOutOrSystemErr
       System.out.println("GCUtil.tryGcSoftlyReachableObjects: giving up. Log:\n" + log);
     }
 
-    // using ref is important as to loop to finish with several iterations: long runs of the method (~80 run of PsiModificationTrackerTest)
-    // discovered 'ref' being collected and loop iterated 100 times taking a lot of time
-    ObjectUtils.reachabilityFence(ref.get());
-
-    //System.out.println("Done gc'ing refs:" + ((System.nanoTime() - started) / 1000000));
+    //System.out.println("Done GCing refs:" + ((System.nanoTime() - started) / 1000000));
   }
 
   @SuppressWarnings({"UseOfSystemOutOrSystemErr", "StringConcatenationInsideStringBufferAppend"})
@@ -83,12 +82,12 @@ public final class GCUtil {
       list.clear();
       //noinspection CallToPrintStackTrace
       e.printStackTrace();
-      System.err.println("Log: " + log + "freeMemory() now: " + Runtime.getRuntime().freeMemory()+"; list.size(): "+size);
+      System.err.println("Log: " + log + "freeMemory() now: " + Runtime.getRuntime().freeMemory() + "; list.size(): " + size);
       System.err.println(ThreadDumper.dumpThreadsToString());
       throw e;
     }
     finally {
-      // do not leave a chance for our created SoftReference's content to lie around until next full GC's
+      // do not leave a chance for our created SoftReference's content to lie around until next full GC
       for (Reference<?> createdReference : list) {
         createdReference.clear();
       }

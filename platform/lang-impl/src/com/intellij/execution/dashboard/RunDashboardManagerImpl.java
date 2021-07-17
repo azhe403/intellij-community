@@ -20,6 +20,7 @@ import com.intellij.execution.ui.RunContentManagerImpl;
 import com.intellij.execution.ui.RunnerLayoutUi;
 import com.intellij.execution.ui.layout.impl.RunnerLayoutUiImpl;
 import com.intellij.icons.AllIcons;
+import com.intellij.ide.lightEdit.LightEdit;
 import com.intellij.openapi.actionSystem.ActionToolbar;
 import com.intellij.openapi.components.PersistentStateComponent;
 import com.intellij.openapi.components.State;
@@ -66,9 +67,9 @@ public final class RunDashboardManagerImpl implements RunDashboardManager, Persi
   private final ContentManager myContentManager;
   private final ContentManagerListener myServiceContentManagerListener;
   private State myState = new State();
-  private final Set<String> myTypes = new THashSet<>();
-  private final Set<RunConfiguration> myHiddenConfigurations = new THashSet<>();
-  private volatile List<List<RunDashboardServiceImpl>> myServices = Collections.emptyList();
+  private final Set<String> myTypes = new HashSet<>();
+  private final Set<RunConfiguration> myHiddenConfigurations = new HashSet<>();
+  private volatile List<List<RunDashboardServiceImpl>> myServices = new SmartList<>();
   private final ReentrantReadWriteLock myServiceLock = new ReentrantReadWriteLock();
   private final RunDashboardStatusFilter myStatusFilter = new RunDashboardStatusFilter();
   private String myToolWindowId;
@@ -82,6 +83,14 @@ public final class RunDashboardManagerImpl implements RunDashboardManager, Persi
     myServiceContentManagerListener = new ServiceContentManagerListener();
     myReuseCondition = this::canReuseContent;
     initExtensionPointListeners();
+
+    myContentManager.addContentManagerListener(new ContentManagerListener() {
+      @Override
+      public void contentAdded(@NotNull ContentManagerEvent event) {
+        initServiceContentListeners();
+        myContentManager.removeContentManagerListener(this);
+      }
+    });
   }
 
   @SuppressWarnings({"unchecked", "rawtypes"})
@@ -197,10 +206,15 @@ public final class RunDashboardManagerImpl implements RunDashboardManager, Persi
   @Override
   public @NotNull String getToolWindowId() {
     if (myToolWindowId == null) {
-      String toolWindowId =
-        ((ServiceViewManagerImpl)ServiceViewManager.getInstance(myProject))
-          .getToolWindowId(RunDashboardServiceViewContributor.class);
-      myToolWindowId = toolWindowId != null ? toolWindowId : ToolWindowId.SERVICES;
+      if (LightEdit.owns(myProject)) {
+        myToolWindowId = ToolWindowId.SERVICES;
+      }
+      else {
+        String toolWindowId =
+          ((ServiceViewManagerImpl)ServiceViewManager.getInstance(myProject))
+            .getToolWindowId(RunDashboardServiceViewContributor.class);
+        myToolWindowId = toolWindowId != null ? toolWindowId : ToolWindowId.SERVICES;
+      }
     }
     return myToolWindowId;
   }
@@ -614,7 +628,7 @@ public final class RunDashboardManagerImpl implements RunDashboardManager, Persi
   }
 
   Set<String> getEnableByDefaultTypes() {
-    Set<String> result = new THashSet<>();
+    Set<String> result = new HashSet<>();
     for (RunDashboardDefaultTypesProvider provider : DEFAULT_TYPES_PROVIDER_EP_NAME.getExtensionList()) {
       result.addAll(provider.getDefaultTypeIds(myProject));
     }
